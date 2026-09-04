@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "41d8c4b2-e305-444b-8021-c552411a32f3",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/core/model.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "69ff4d72-c021-4d1d-b085-21f768f86bdf",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/platform/cocosSaveStore.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}

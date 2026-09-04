@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "be92e037-b574-4948-a39f-17239a40fdc7",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/core/random.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}

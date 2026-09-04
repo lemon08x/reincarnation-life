@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "c9f45567-5080-45e9-89aa-91b857bfde31",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/core/progression.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}

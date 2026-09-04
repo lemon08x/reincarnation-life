@@ -1,0 +1,12 @@
+/library/
+/temp/
+/local/
+/build/
+/profiles/
+/.test-dist/
+/node_modules/
+
+*.log
+*.tsbuildinfo
+.DS_Store
+Thumbs.db

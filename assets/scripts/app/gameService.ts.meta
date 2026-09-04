@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "cc59fbb3-cb72-43c5-b158-a05fd6a44c42",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/app/gameService.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "c1651728-668d-4f55-b978-53371a73e34b",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/core/lifeEngine.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}

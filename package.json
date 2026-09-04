@@ -1,0 +1,21 @@
+{
+  "name": "reincarnation-life",
+  "version": "0.2.0",
+  "private": true,
+  "description": "A Cocos Creator text game about living repeated lives with permanent progression.",
+  "type": "2d",
+  "uuid": "ed1a6452-96a8-43f1-a5d6-fdcf2772eb6c",
+  "creator": {
+    "version": "3.8.8"
+  },
+  "scripts": {
+    "cocos": "powershell -NoProfile -ExecutionPolicy Bypass -File ./start-cocos.ps1",
+    "typecheck": "tsc -p tsconfig.verify.json --noEmit",
+    "test:core": "tsc -p tsconfig.test.json && node .test-dist/tests/run-tests.js",
+    "test": "npm run typecheck && npm run test:core"
+  },
+  "devDependencies": {
+    "@cocos/creator-types": "3.8.8",
+    "typescript": "5.8.3"
+  }
+}
