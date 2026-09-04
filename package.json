@@ -9,7 +9,10 @@
     "version": "3.8.8"
   },
   "scripts": {
-    "cocos": "powershell -NoProfile -ExecutionPolicy Bypass -File ./start-cocos.ps1",
+    "cocos": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/cocos/start.ps1",
+    "build:release": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/cocos/build-release.ps1",
+    "build:web": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/cocos/build-release.ps1 -Target Web",
+    "build:wechat": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/cocos/build-release.ps1 -Target Wechat",
     "typecheck": "tsc -p tsconfig.verify.json --noEmit",
     "test:core": "tsc -p tsconfig.test.json && node .test-dist/tests/run-tests.js",
     "test": "npm run typecheck && npm run test:core"

@@ -1,0 +1,37 @@
+{
+  "taskName": "wechatgame-release",
+  "platform": "wechatgame",
+  "name": "reincarnation-life",
+  "outputName": "wechatgame",
+  "buildPath": "project://build",
+  "startScene": "6d81df26-b7a2-4c98-8dde-b9a09a60c401",
+  "scenes": [
+    {
+      "url": "db://assets/scenes/main.scene",
+      "uuid": "6d81df26-b7a2-4c98-8dde-b9a09a60c401"
+    }
+  ],
+  "debug": false,
+  "sourceMaps": false,
+  "md5Cache": true,
+  "mainBundleCompressionType": "merge_dep",
+  "mainBundleIsRemote": false,
+  "includeModules": [
+    "base",
+    "gfx-webgl",
+    "2d",
+    "ui",
+    "graphics",
+    "custom-pipeline"
+  ],
+  "packages": {
+    "wechatgame": {
+      "__version__": "1.0.4",
+      "orientation": "portrait",
+      "buildOpenDataContextTemplate": false,
+      "separateEngine": false,
+      "highPerformanceMode": false,
+      "wasmSubpackage": false
+    }
+  }
+}

@@ -343,6 +343,24 @@ npm run cocos
 
 启动脚本读取 `package.json` 中的 Creator 版本，寻找匹配的 3.8.8 编辑器并打开项目。浏览器预览已经验证开局、天赋、属性、阶段志向、普通推进、自动停在抉择以及选择结果；微信开发者工具的触摸、前后台切换和真机性能仍需发布前验证。
 
+### 5.4 Release 构建与交付边界
+
+项目通过 `scripts/cocos/build-release.ps1` 统一生成 Web Mobile 和微信小游戏 Release 产物：
+
+纯领域逻辑的开发和自动化验证不依赖 Cocos Creator；场景资源处理、引擎编译和平台 Release 构建属于引擎工具链职责，仍以本机 Cocos Creator 3.8.8 为构建时依赖。
+
+```powershell
+npm run build:release   # 两个平台
+npm run build:web       # 仅 Web Mobile
+npm run build:wechat    # 仅微信小游戏
+```
+
+构建流程为：定位 `package.json` 指定的 Creator 3.8.8 → 执行 TypeScript 校验 → 生成带正确数据类型的临时构建配置 → 由 Creator CLI 串行构建 → 按退出码和关键文件验证产物。启动、构建脚本与版本化配置统一保存在 `scripts/cocos/`（配置位于 `scripts/cocos/configs/`）；运行时配置与日志保存在被忽略的 `temp/release-build/`，最终产物保存在被忽略的 `build/web-mobile/` 和 `build/wechatgame/`。
+
+两个目标均关闭 Debug 和 Source Map、开启 MD5 缓存，并把 `main.scene` 固定为启动场景。引擎功能裁剪只保留 `base`、WebGL、2D、UI、Graphics 和自定义渲染管线，避免把本项目未使用的 3D、物理、Spine、粒子与音频模块带入发布包。Web 产物是可部署到静态 HTTPS 服务的网页包；微信产物是微信开发者工具可导入的小游戏工程。微信 AppID 通过 `-WechatAppId` 或 `WECHAT_APP_ID` 在构建时注入，不写入仓库。
+
+构建、预览、上传和上线是四个不同阶段：本脚本只完成“构建”。未提供 AppID 时生成的微信工程仅用于本地检查；正式预览、上传、提交审核和发布需要真实 AppID、已登录且有权限的微信开发者工具账号，并需另外完成触摸交互、前后台切换、包体限制和真机性能验收。
+
 ## 6. 当前版本边界
 
 当前版本完成单机核心闭环，不包含：
@@ -351,6 +369,6 @@ npm run cocos
 - 广告、内购、抽卡、签到、体力或多种可兑换货币。
 - 大量插画、语音、复杂动画或实时操作玩法。
 - 无限剧情分支和程序生成文本。
-- 微信开发者工具与真机发布验收。
+- 微信开发者工具预览、上传、审核与真机发布验收（Release 工程生成流程已具备）。
 
 后续内容扩展应继续使用现有配置与校验机制；接入微信能力时，应优先增加平台适配层，不把平台 API 引入纯领域层。

@@ -1,0 +1,36 @@
+{
+  "taskName": "web-mobile-release",
+  "platform": "web-mobile",
+  "name": "reincarnation-life",
+  "outputName": "web-mobile",
+  "buildPath": "project://build",
+  "startScene": "6d81df26-b7a2-4c98-8dde-b9a09a60c401",
+  "scenes": [
+    {
+      "url": "db://assets/scenes/main.scene",
+      "uuid": "6d81df26-b7a2-4c98-8dde-b9a09a60c401"
+    }
+  ],
+  "debug": false,
+  "sourceMaps": false,
+  "md5Cache": true,
+  "mainBundleCompressionType": "merge_dep",
+  "mainBundleIsRemote": false,
+  "includeModules": [
+    "base",
+    "gfx-webgl",
+    "gfx-webgl2",
+    "2d",
+    "ui",
+    "graphics",
+    "custom-pipeline"
+  ],
+  "packages": {
+    "web-mobile": {
+      "__version__": "1.0.1",
+      "orientation": "portrait",
+      "useWebGPU": false,
+      "embedWebDebugger": false
+    }
+  }
+}

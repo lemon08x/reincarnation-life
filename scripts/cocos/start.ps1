@@ -8,7 +8,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$projectRoot = [System.IO.Path]::GetFullPath($PSScriptRoot)
+$projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $packageJsonPath = Join-Path $projectRoot 'package.json'
 
 if (-not (Test-Path -LiteralPath $packageJsonPath -PathType Leaf)) {
