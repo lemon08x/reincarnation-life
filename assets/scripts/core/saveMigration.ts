@@ -1,13 +1,21 @@
 import {
   emptyStats,
   GameContent,
+  LifeMark,
   GameSave,
+  LifeDomain,
+  LIFE_DOMAINS,
   LifeHistoryEntry,
+  LifeRelation,
   LifeRun,
   LifeSettlement,
   LifeStatus,
+  LifeThread,
   LifeTurnState,
+  LifeWorld,
   ReincarnatorProfile,
+  RELATION_KINDS,
+  RelationKind,
   RULES_VERSION,
   RunFateState,
   SAVE_VERSION,
@@ -17,6 +25,8 @@ import {
   Stats,
 } from './model';
 import { getLifeStageForAge } from './lifeEngine';
+import { inferWorldFromTags } from './lifeWorld';
+import { applyMarkChanges, inferMarkChanges } from './lifeMarks';
 import { getRunCapabilities, normalizeProfile } from './progression';
 
 type UnknownRecord = Record<string, unknown>;
@@ -87,6 +97,9 @@ function migrateLifeRun(
         sourceChoiceId: typeof value.pendingDecision.sourceChoiceId === 'string'
           ? value.pendingDecision.sourceChoiceId
           : undefined,
+        pressureNote: typeof value.pendingDecision.pressureNote === 'string'
+          ? value.pendingDecision.pressureNote
+          : undefined,
       }
     : undefined;
   const status = normalizeStatus(value.status);
@@ -119,6 +132,8 @@ function migrateLifeRun(
     allocation,
     stats,
     tags: stringArray(value.tags),
+    marks: normalizeMarks(value.marks, stats, content),
+    world: normalizeWorld(value.world, stringArray(value.tags), value.familyId, age),
     history: normalizeHistory(value.history),
     currentStageId: typeof value.currentStageId === 'string'
       ? value.currentStageId
@@ -127,6 +142,11 @@ function migrateLifeRun(
     stageSelections,
     scheduledEvents: normalizeScheduledEvents(value.scheduledEvents),
     pendingDecision,
+    playMode: value.playMode === 'history' ? 'history' : 'free',
+    historyRegion: typeof value.historyRegion === 'string' ? value.historyRegion as LifeRun['historyRegion'] : undefined,
+    figureId: typeof value.figureId === 'string' ? value.figureId : undefined,
+    chapterIndex: Math.max(0, Math.floor(numberValue(value.chapterIndex, 0))),
+    completedScenarioIds: stringArray(value.completedScenarioIds),
     capabilities,
     fate,
     endReason: typeof value.endReason === 'string' ? value.endReason : undefined,
@@ -161,7 +181,93 @@ function normalizeHistory(value: unknown): LifeHistoryEntry[] {
     choiceId: typeof entry.choiceId === 'string' ? entry.choiceId : undefined,
     outcomeId: typeof entry.outcomeId === 'string' ? entry.outcomeId : undefined,
     causedByChoiceId: typeof entry.causedByChoiceId === 'string' ? entry.causedByChoiceId : undefined,
+    worldChanges: stringArray(entry.worldChanges),
+    markChanges: stringArray(entry.markChanges),
+    touchedDomains: stringArray(entry.touchedDomains).filter((item): item is LifeDomain => (
+      LIFE_DOMAINS.includes(item as LifeDomain)
+    )),
+    pressureNote: typeof entry.pressureNote === 'string' ? entry.pressureNote : undefined,
   }));
+}
+
+function normalizeWorld(
+  value: unknown,
+  tags: string[],
+  familyId: unknown,
+  age: number,
+): LifeWorld {
+  if (!isRecord(value)) {
+    return inferWorldFromTags(tags, typeof familyId === 'string' ? familyId : '', age);
+  }
+  const facts: LifeWorld['facts'] = {};
+  if (isRecord(value.facts)) {
+    for (const [key, fact] of Object.entries(value.facts)) {
+      if (isRecord(fact) && typeof fact.value === 'string') {
+        facts[key] = {
+          value: fact.value,
+          sinceAge: Math.max(0, Math.floor(numberValue(fact.sinceAge, age))),
+        };
+      }
+    }
+  }
+  const relations = Array.isArray(value.relations)
+    ? value.relations.filter(isRecord).flatMap((relation): LifeRelation[] => {
+      if (typeof relation.id !== 'string') {
+        return [];
+      }
+      const kind: RelationKind = RELATION_KINDS.includes(relation.kind as RelationKind)
+        ? relation.kind as RelationKind
+        : 'community';
+      return [{
+        id: relation.id,
+        kind,
+        label: typeof relation.label === 'string' ? relation.label : relation.id,
+        closeness: clampNumber(numberValue(relation.closeness, 4), 0, 10),
+        strain: clampNumber(numberValue(relation.strain, 0), 0, 10),
+        sinceAge: Math.max(0, Math.floor(numberValue(relation.sinceAge, age))),
+        lastTouchedAge: Math.max(0, Math.floor(numberValue(relation.lastTouchedAge, age))),
+      }];
+    })
+    : [];
+  const threads = Array.isArray(value.threads)
+    ? value.threads.filter(isRecord).flatMap((thread): LifeThread[] => {
+      if (typeof thread.id !== 'string' || !LIFE_DOMAINS.includes(thread.domain as LifeDomain)) {
+        return [];
+      }
+      return [{
+        id: thread.id,
+        domain: thread.domain as LifeDomain,
+        label: typeof thread.label === 'string' ? thread.label : thread.id,
+        intensity: clampNumber(numberValue(thread.intensity, 2), 0, 10),
+        sinceAge: Math.max(0, Math.floor(numberValue(thread.sinceAge, age))),
+        lastEventAge: Math.max(0, Math.floor(numberValue(thread.lastEventAge, age))),
+      }];
+    })
+    : [];
+  if (Object.keys(facts).length === 0 && relations.length === 0 && threads.length === 0) {
+    return inferWorldFromTags(tags, typeof familyId === 'string' ? familyId : '', age);
+  }
+  return { facts, relations, threads };
+}
+
+function normalizeMarks(value: unknown, stats: Stats, content: GameContent): LifeMark[] {
+  if (Array.isArray(value)) {
+    const fromSave = value.filter(isRecord).flatMap((item): LifeMark[] => {
+      if (typeof item.id !== 'string' || !content.marks.some((mark) => mark.id === item.id)) {
+        return [];
+      }
+      const intensity = clampNumber(numberValue(item.intensity, 1), 1, 3);
+      return [{ id: item.id, intensity }];
+    });
+    if (fromSave.length > 0) {
+      return fromSave;
+    }
+  }
+  return applyMarkChanges([], inferMarkChanges(stats, true), content.marks).marks;
+}
+
+function clampNumber(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
 }
 
 function normalizeStageSelections(value: unknown): StageSelection[] {
@@ -242,7 +348,12 @@ function normalizeStatus(value: unknown): LifeStatus {
 }
 
 function normalizeTurnState(value: unknown, fallback: LifeTurnState): LifeTurnState {
-  return value === 'awaiting-focus' || value === 'ready' || value === 'awaiting-choice'
+  return value === 'awaiting-focus'
+    || value === 'awaiting-path'
+    || value === 'in-scenario'
+    || value === 'awaiting-choice'
+    || value === 'scenario-summary'
+    || value === 'ready'
     ? value
     : fallback;
 }

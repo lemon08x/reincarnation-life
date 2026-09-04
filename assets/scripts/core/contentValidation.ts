@@ -1,4 +1,4 @@
-import { GameContent, LifeEventConfig } from './model';
+import { GameContent, LIFE_DOMAINS, LifeDomain, LifeEventConfig } from './model';
 
 export function validateGameContent(content: GameContent): string[] {
   const errors: string[] = [];
@@ -8,6 +8,21 @@ export function validateGameContent(content: GameContent): string[] {
   validateUniqueIds('ending', content.endings.map((item) => item.id), errors);
   validateUniqueIds('stage', content.stages.map((item) => item.id), errors);
   validateUniqueIds('legacy', content.legacies.map((item) => item.id), errors);
+  validateUniqueIds('mark', content.marks.map((item) => item.id), errors);
+  validateUniqueIds('scenario', content.scenarios.map((item) => item.id), errors);
+  validateUniqueIds('region', content.regions.map((item) => item.id), errors);
+  validateUniqueIds('figure', content.figures.map((item) => item.id), errors);
+  const scenarioIds = new Set(content.scenarios.map((item) => item.id));
+  for (const figure of content.figures) {
+    if (!content.regions.some((region) => region.id === figure.region)) {
+      errors.push(`Figure ${figure.id} uses unknown region ${figure.region}.`);
+    }
+    for (const chapter of figure.chapters) {
+      if (!scenarioIds.has(chapter.scenarioId)) {
+        errors.push(`Figure ${figure.id} references unknown scenario ${chapter.scenarioId}.`);
+      }
+    }
+  }
 
   const eventIds = new Set(content.events.map((event) => event.id));
   for (const event of content.events) {
@@ -72,6 +87,17 @@ function validateEvent(
   }
   if (event.weight < 0) {
     errors.push(`Event ${event.id} has a negative weight.`);
+  }
+  const domains = [...(event.domains ?? []), ...(event.themes ?? [])];
+  for (const domain of domains) {
+    if (domain !== 'risk' && !LIFE_DOMAINS.includes(domain as LifeDomain)) {
+      errors.push(`Event ${event.id} uses unknown domain ${domain}.`);
+    }
+  }
+  for (const coupling of event.couplings ?? []) {
+    if (coupling.weightBonus < 0) {
+      errors.push(`Event ${event.id} has a negative coupling bonus.`);
+    }
   }
   if (!event.choices) {
     return;

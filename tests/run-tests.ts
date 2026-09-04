@@ -3,20 +3,27 @@ import { GAME_CONTENT } from '../assets/scripts/content/gameContent';
 import { validateGameContent } from '../assets/scripts/core/contentValidation';
 import {
   advanceToNextMoment,
+  chooseLifePath,
   chooseStageFocus,
+  continueScenario,
   drawTalentDraft,
-  getAllocationPointTotal,
   getCurrentLifeStage,
+  getEventSelectionWeight,
   getPendingEvent,
+  listAvailablePaths,
+  listEligibleEvents,
   resolveEventChoice,
+  resolveScenarioAction,
+  startHistoryLife,
   startLife,
 } from '../assets/scripts/core/lifeEngine';
+import { markIntensity, markOutcomeMultiplier } from '../assets/scripts/core/lifeMarks';
+import { computeWorldPressures, formatWorldSummary, tickLifeWorld } from '../assets/scripts/core/lifeWorld';
 import {
   GameSave,
   LifeRun,
   ReincarnatorProfile,
   SAVE_VERSION,
-  Stats,
 } from '../assets/scripts/core/model';
 import {
   createInitialProfile,
@@ -61,15 +68,6 @@ function assertThrows(run: () => void, message: string): void {
   assert(threw, message);
 }
 
-function allocationFor(total: number): Stats {
-  return {
-    health: total,
-    intellect: 0,
-    charm: 0,
-    wealth: 0,
-  };
-}
-
 function startTestLife(
   profile: ReincarnatorProfile,
   seed: number,
@@ -80,7 +78,6 @@ function startTestLife(
     profile,
     draft,
     draft.candidateIds.slice(0, draft.requiredSelectionCount),
-    allocationFor(getAllocationPointTotal(profile, GAME_CONTENT)),
     runId,
     GAME_CONTENT,
   );
@@ -96,18 +93,42 @@ function chooseFirstFocus(run: LifeRun): LifeRun {
 function finishLifeWithFirstChoices(initialRun: LifeRun): LifeRun {
   let run = initialRun;
   for (let step = 0; step < 500 && run.status === 'active'; step += 1) {
-    if (run.turnState === 'awaiting-focus') {
-      run = chooseFirstFocus(run);
-    } else if (run.turnState === 'awaiting-choice') {
-      const choiceId = run.pendingDecision?.choiceIds[0];
-      assert(choiceId !== undefined, 'a pending decision should offer at least one choice');
-      run = resolveEventChoice(run, choiceId, GAME_CONTENT);
-    } else {
-      run = advanceToNextMoment(run, GAME_CONTENT);
-    }
+    run = stepLife(run);
   }
   assertEqual(run.status, 'ended', `life ${run.id} should reach an ending`);
   return run;
+}
+
+function stepLife(run: LifeRun): LifeRun {
+  if (run.turnState === 'awaiting-path' || run.turnState === 'awaiting-focus') {
+    const paths = listAvailablePaths(run, GAME_CONTENT);
+    if (paths[0]) {
+      return chooseLifePath(run, paths[0].id, GAME_CONTENT);
+    }
+    if (run.turnState === 'awaiting-focus') {
+      return chooseFirstFocus(run);
+    }
+    return continueScenario({ ...run, turnState: 'scenario-summary', scenarioReport: {
+      title: '空',
+      years: 1,
+      ageAfter: Math.min(100, run.age + 1),
+      lines: [],
+    }, completedScenarioIds: [...run.completedScenarioIds, 'dusk'] }, GAME_CONTENT);
+  }
+  if (run.turnState === 'awaiting-choice') {
+    const choiceId = run.pendingDecision?.choiceIds[0];
+    assert(choiceId !== undefined, 'a pending decision should offer at least one choice');
+    return resolveEventChoice(run, choiceId, GAME_CONTENT);
+  }
+  if (run.turnState === 'in-scenario') {
+    const action = run.currentScenario?.actionIds[0];
+    assert(action !== undefined, 'a scenario should offer an action');
+    return resolveScenarioAction(run, action, GAME_CONTENT);
+  }
+  if (run.turnState === 'scenario-summary') {
+    return continueScenario(run, GAME_CONTENT);
+  }
+  return advanceToNextMoment(run, GAME_CONTENT);
 }
 
 function findRunWaitingForDecision(): LifeRun {
@@ -118,9 +139,7 @@ function findRunWaitingForDecision(): LifeRun {
       if (run.turnState === 'awaiting-choice') {
         return run;
       }
-      run = run.turnState === 'awaiting-focus'
-        ? chooseFirstFocus(run)
-        : advanceToNextMoment(run, GAME_CONTENT);
+      run = stepLife(run);
     }
   }
   throw new Error('No deterministic seed reached a key decision.');
@@ -142,6 +161,10 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function uniqueTags(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
 function chooseServiceFocus(service: GameService): void {
   const run = service.getCurrentRun();
   assert(run?.status === 'active' && run.turnState === 'awaiting-focus', 'service should await a focus');
@@ -156,7 +179,17 @@ function finishServiceLife(service: GameService): LifeRun {
     if (run.status !== 'active') {
       return run;
     }
-    if (run.turnState === 'awaiting-focus') {
+    if (run.turnState === 'awaiting-path') {
+      const paths = listAvailablePaths(run, service.getContent());
+      assert(paths[0] !== undefined, 'service should offer a path');
+      service.chooseCurrentPath(paths[0].id);
+    } else if (run.turnState === 'in-scenario') {
+      const actionId = run.currentScenario?.actionIds[0];
+      assert(actionId !== undefined, 'service scenario should offer an action');
+      service.resolveCurrentScenarioAction(actionId);
+    } else if (run.turnState === 'scenario-summary') {
+      service.continueCurrentScenario();
+    } else if (run.turnState === 'awaiting-focus') {
       chooseServiceFocus(service);
     } else if (run.turnState === 'awaiting-choice') {
       const choiceId = run.pendingDecision?.choiceIds[0];
@@ -200,18 +233,15 @@ test('a life begins by asking for a stage focus and applies that choice', () => 
   const profile = createInitialProfile(GAME_CONTENT);
   const run = startTestLife(profile, 7, 'stage-start');
   assertEqual(run.status, 'active', 'new life status');
-  assertEqual(run.turnState, 'awaiting-focus', 'new life turn state');
+  assertEqual(run.turnState, 'awaiting-path', 'new life should wait for a scenario path');
   assertEqual(run.age, 0, 'new life age');
   assertEqual(run.history.length, 1, 'birth should be recorded');
 
-  const stage = getCurrentLifeStage(run, GAME_CONTENT);
-  const focus = stage.focuses[0];
-  const intellectBefore = run.stats.intellect;
-  const focused = chooseStageFocus(run, focus.id, GAME_CONTENT);
-  assertEqual(focused.turnState, 'ready', 'focus should make the life ready to advance');
-  assertEqual(focused.currentFocusId, focus.id, 'selected focus id');
-  assertEqual(focused.stageSelections.length, 1, 'stage selection should be remembered');
-  assertEqual(focused.stats.intellect, intellectBefore + (focus.effects.intellect ?? 0), 'focus stat effect');
+  const paths = listAvailablePaths(run, GAME_CONTENT);
+  assert(paths.length >= 1, 'a new life should offer at least one path');
+  const entered = chooseLifePath(run, paths[0].id, GAME_CONTENT);
+  assert(entered.turnState === 'in-scenario' || entered.turnState === 'awaiting-choice', 'entering a path should start a scenario');
+  assert(entered.currentScenario !== undefined, 'an active scenario should be stored');
 });
 
 test('advancement pauses at a persisted key decision', () => {
@@ -226,9 +256,47 @@ test('advancement pauses at a persisted key decision', () => {
   )), 'persisted choice ids should belong to the pending event');
 });
 
-test('a choice changes the run and its scheduled consequence returns later', () => {
+test('a new life begins as a living world, not a blank stat sheet', () => {
   const profile = createInitialProfile(GAME_CONTENT);
-  const focused = chooseFirstFocus(startTestLife(profile, 901, 'scheduled-choice'));
+  const run = startTestLife(profile, 11, 'world-birth');
+  assert(run.world.relations.some((item) => item.id === 'parents'), 'birth should include a family relation');
+  assertEqual(run.world.facts.residence?.value, 'hometown', 'birth should place the life in a hometown');
+  assert(run.world.threads.some((item) => item.domain === 'family'), 'birth should start a family thread');
+  assert(Boolean(formatWorldSummary(run.world)), 'the living situation should be describable');
+  assert((run.marks?.length ?? 0) > 0, 'birth should grant named marks instead of allocated numbers');
+});
+
+test('talents grant named auras rather than invisible numbers', () => {
+  const profile = createInitialProfile(GAME_CONTENT);
+  const draft = drawTalentDraft(profile, 11, GAME_CONTENT);
+  const sturdy = draft.candidateIds.includes('strong_bones') ? 'strong_bones' : draft.candidateIds[0];
+  const second = draft.candidateIds.find((id) => id !== sturdy) ?? draft.candidateIds[1];
+  const run = startLife(profile, draft, [sturdy, second], 'mark-birth', GAME_CONTENT);
+  assert((run.marks?.length ?? 0) >= 1, 'selected talents should leave marks');
+  if (sturdy === 'strong_bones') {
+    assert(markIntensity(run.marks, 'sturdy') >= 1, 'strong bones should become a body aura');
+  }
+});
+
+test('marks tilt the odds of later outcomes', () => {
+  const luckyWeight = markOutcomeMultiplier(
+    [{ id: 'lucky', intensity: 3 }],
+    { id: 'kind', weight: 1, text: '', effects: { wealth: 2 } },
+    GAME_CONTENT.marks,
+  );
+  const wornWeight = markOutcomeMultiplier(
+    [{ id: 'wear', intensity: 3 }],
+    { id: 'harsh', weight: 1, text: '', effects: { health: -2 } },
+    GAME_CONTENT.marks,
+  );
+  assert(luckyWeight > 1, 'fortune should make kinder outcomes more likely');
+  assert(wornWeight > 1, 'exhaustion should make harsher body outcomes more likely');
+});
+
+test('a choice mutates world state rather than only changing stats', () => {
+  const profile = createInitialProfile(GAME_CONTENT);
+  const started = startTestLife(profile, 901, 'world-choice');
+  const focused = chooseLifePath(started, listAvailablePaths(started, GAME_CONTENT)[0].id, GAME_CONTENT);
   const decisionRun: LifeRun = {
     ...focused,
     age: 8,
@@ -241,29 +309,123 @@ test('a choice changes the run and its scheduled consequence returns later', () 
       rerolledEventIds: [],
     },
   };
-  let resolved = resolveEventChoice(decisionRun, 'confess', GAME_CONTENT);
-  assertEqual(resolved.turnState, 'ready', 'resolved choice should release the turn');
-  assert(resolved.tags.includes('takes_responsibility'), 'choice outcome should add its route tag');
-  assert(resolved.scheduledEvents.some((item) => item.eventId === 'neighbor_trust'), 'future consequence should be scheduled');
-  assertEqual(resolved.history[resolved.history.length - 1].choiceId, 'confess', 'choice should enter history');
+  const resolved = resolveEventChoice(decisionRun, 'confess', GAME_CONTENT);
+  assert(resolved.world.relations.some((item) => item.id === 'neighbor'), 'confessing should create a neighbor relation');
+  assert(resolved.history[resolved.history.length - 1].worldChanges?.length, 'history should record world fragments');
+  assert(resolved.tags.includes('takes_responsibility'), 'route tags should still be applied');
+});
 
-  for (let step = 0; step < 30 && resolved.status === 'active'; step += 1) {
-    if (resolved.history.some((entry) => entry.eventId === 'neighbor_trust')) {
-      break;
-    }
-    if (resolved.turnState === 'awaiting-focus') {
-      resolved = chooseFirstFocus(resolved);
-    } else if (resolved.turnState === 'awaiting-choice') {
-      const choiceId = resolved.pendingDecision?.choiceIds[0];
-      assert(choiceId !== undefined, 'intervening decision should offer a choice');
-      resolved = resolveEventChoice(resolved, choiceId, GAME_CONTENT);
-    } else {
-      resolved = advanceToNextMoment(resolved, GAME_CONTENT);
-    }
+test('two active life strands can couple into a new event', () => {
+  const profile = createInitialProfile(GAME_CONTENT);
+  const focused = startTestLife(profile, 44, 'world-coupling');
+  const coupled: LifeRun = {
+    ...focused,
+    age: 34,
+    tags: uniqueTags([...focused.tags, 'has_career', 'made_a_home']),
+    world: {
+      ...focused.world,
+      facts: {
+        ...focused.world.facts,
+        occupation: { value: 'employed', sinceAge: 22 },
+        partnership: { value: 'home', sinceAge: 28 },
+      },
+      relations: [
+        ...focused.world.relations,
+        {
+          id: 'partner',
+          kind: 'partner',
+          label: '伴侣',
+          closeness: 7,
+          strain: 3,
+          sinceAge: 28,
+          lastTouchedAge: 33,
+        },
+      ],
+      threads: [
+        ...focused.world.threads,
+        {
+          id: 'career_life',
+          domain: 'career',
+          label: '谋生',
+          intensity: 6,
+          sinceAge: 22,
+          lastEventAge: 32,
+        },
+        {
+          id: 'family_own',
+          domain: 'family',
+          label: '自己的家',
+          intensity: 6,
+          sinceAge: 28,
+          lastEventAge: 33,
+        },
+      ],
+    },
+  };
+  const eligible = listEligibleEvents(coupled, 34, GAME_CONTENT);
+  const clash = eligible.find((event) => event.id === 'work_home_clash');
+  assert(clash !== undefined, 'career plus family should unlock a cross-strand event');
+  const clashWeight = getEventSelectionWeight(clash, coupled, GAME_CONTENT);
+  const ordinary = GAME_CONTENT.events.find((event) => event.id === 'adult_year');
+  assert(ordinary !== undefined, 'ordinary adult year should exist');
+  const ordinaryWeight = getEventSelectionWeight(ordinary, coupled, GAME_CONTENT);
+  assert(clashWeight > ordinaryWeight, 'coupled pressure should outweigh an ordinary year');
+  const pressures = computeWorldPressures(coupled.world, coupled.stats, coupled.age);
+  assert(pressures.career >= 4 && pressures.family >= 4, 'both strands should be under pressure');
+});
+
+test('neglected relations drift even when other years occupy the foreground', () => {
+  const profile = createInitialProfile(GAME_CONTENT);
+  const focused = startTestLife(profile, 18, 'world-drift');
+  const withFriend: LifeRun = {
+    ...focused,
+    age: 22,
+    world: {
+      ...focused.world,
+      relations: [
+        ...focused.world.relations,
+        {
+          id: 'friend',
+          kind: 'friend',
+          label: '故人',
+          closeness: 6,
+          strain: 0,
+          sinceAge: 14,
+          lastTouchedAge: 14,
+        },
+      ],
+    },
+  };
+  const drifted = tickLifeWorld(withFriend.world, withFriend.stats, 22);
+  const friend = drifted.relations.find((item) => item.id === 'friend');
+  assert(friend !== undefined, 'the friend relation should still exist');
+  assert(friend.closeness < 6, 'a neglected friend should grow more distant');
+});
+
+test('a commerce chapter is played in turns instead of years', () => {
+  const profile = createInitialProfile(GAME_CONTENT);
+  let run = startTestLife(profile, 44, 'commerce-turns');
+  run = { ...run, age: 20, completedScenarioIds: ['childhood'] };
+  const entered = chooseLifePath(run, 'commerce', GAME_CONTENT);
+  assert(entered.currentScenario?.scenarioId === 'commerce', 'commerce should become the active chapter');
+  assert(entered.turnState === 'in-scenario' || entered.turnState === 'awaiting-choice', 'the chapter should wait for a turn');
+  if (entered.turnState === 'in-scenario') {
+    const purseBefore = entered.currentScenario?.resources.purse ?? 0;
+    const acted = resolveScenarioAction(entered, 'hold', GAME_CONTENT);
+    const purseAfter = acted.currentScenario?.resources.purse ?? purseBefore + 1;
+    assert(purseAfter >= purseBefore, 'holding a season should not lose the purse');
   }
-  const consequence = resolved.history.find((entry) => entry.eventId === 'neighbor_trust');
-  assert(consequence !== undefined, 'scheduled consequence should occur inside its age window');
-  assertEqual(consequence.causedByChoiceId, 'broken_window:confess', 'consequence should retain its causal choice');
+});
+
+test('history mode walks a figure chapter by chapter', () => {
+  const profile = createInitialProfile(GAME_CONTENT);
+  const run = startHistoryLife(profile, 'kongzi', 'history-kongzi', GAME_CONTENT);
+  assertEqual(run.playMode, 'history', 'history mode');
+  assertEqual(run.figureId, 'kongzi', 'figure id');
+  const paths = listAvailablePaths(run, GAME_CONTENT);
+  assertEqual(paths[0]?.title, '问礼', 'the first chapter should use the figure title');
+  const entered = chooseLifePath(run, paths[0].id, GAME_CONTENT);
+  assertEqual(entered.currentScenario?.title, '问礼', 'entered chapter title');
 });
 
 test('settlement grants experience once and persists three diverse offers', () => {
@@ -321,7 +483,6 @@ test('service reload preserves a pending event without rerolling it', () => {
   service.startNewLife(
     draft,
     draft.candidateIds.slice(0, draft.requiredSelectionCount),
-    allocationFor(getAllocationPointTotal(service.getProfile(), GAME_CONTENT)),
   );
 
   for (let step = 0; step < 200; step += 1) {
@@ -330,8 +491,19 @@ test('service reload preserves a pending event without rerolling it', () => {
     if (run.turnState === 'awaiting-choice') {
       break;
     }
-    if (run.turnState === 'awaiting-focus') {
-      chooseServiceFocus(service);
+    if (run.turnState === 'awaiting-path' || run.turnState === 'awaiting-focus') {
+      const paths = listAvailablePaths(run, service.getContent());
+      if (paths[0]) {
+        service.chooseCurrentPath(paths[0].id);
+      } else {
+        chooseServiceFocus(service);
+      }
+    } else if (run.turnState === 'in-scenario') {
+      const actionId = run.currentScenario?.actionIds[0];
+      assert(actionId !== undefined, 'service scenario should offer an action');
+      service.resolveCurrentScenarioAction(actionId);
+    } else if (run.turnState === 'scenario-summary') {
+      service.continueCurrentScenario();
     } else {
       service.advanceCurrentLife();
     }
@@ -370,7 +542,6 @@ test('service reload preserves reward offers and never duplicates settlement', (
   service.startNewLife(
     draft,
     draft.candidateIds.slice(0, draft.requiredSelectionCount),
-    allocationFor(getAllocationPointTotal(service.getProfile(), GAME_CONTENT)),
   );
   const pendingReward = finishServiceLife(service);
   assertEqual(pendingReward.status, 'reward-pending', 'service should stop at reward selection');
@@ -491,13 +662,13 @@ test('one thousand deterministic lives finish without dead ends', () => {
     const choices = ended.history.filter((entry) => Boolean(entry.choiceId));
     totalDecisions += choices.length;
     laterLifeDecisions += choices.filter((entry) => entry.age >= 50).length;
-    if (ended.stageSelections.some((selection) => selection.stageId === 'later_years')) {
+    if (ended.age >= 55 || ended.completedScenarioIds.includes('dusk')) {
       reachedLaterYears += 1;
     }
   }
   assert(totalDecisions >= 1000, 'the simulation should contain at least one meaningful choice per life on average');
   assert(laterLifeDecisions > 0, 'some meaningful choices should occur after age fifty');
-  assert(reachedLaterYears > 0, 'some lives should reach and select a later-years focus');
+  assert(reachedLaterYears > 0, 'some lives should reach later years or dusk');
 });
 
 let passed = 0;

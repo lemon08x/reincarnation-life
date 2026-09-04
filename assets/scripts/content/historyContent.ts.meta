@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "e6f04b3a-9d72-4051-c24b-5f0a8d24a379",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/content/historyContent.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}

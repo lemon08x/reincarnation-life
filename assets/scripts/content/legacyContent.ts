@@ -4,7 +4,7 @@ export const LEGACIES: LegacyConfig[] = [
   {
     id: 'memory_of_abundance',
     name: '余裕之忆',
-    description: '装备后，每世可分配初始属性点 +1。',
+    description: '装备后，每世开局带着「开局余裕」，起步少一点紧巴。',
     category: 'origin',
     persistence: 'permanent',
     unlockLevel: 1,
@@ -34,7 +34,7 @@ export const LEGACIES: LegacyConfig[] = [
   {
     id: 'clear_omens',
     name: '看见征兆',
-    description: '装备后，可以看见每个选择的完整属性变化范围。',
+    description: '装备后，可以看见每个选择会留下什么光环、行囊或负累。',
     category: 'fate',
     persistence: 'permanent',
     unlockLevel: 2,
@@ -44,7 +44,7 @@ export const LEGACIES: LegacyConfig[] = [
   {
     id: 'borrowed_breath',
     name: '借来的一口气',
-    description: '装备后，每世第一次因体魄或意外死亡时保留 1 点体魄。',
+    description: '装备后，每世第一次撑不住时，会压下「透支」，让你再留一口气。',
     category: 'fate',
     persistence: 'permanent',
     unlockLevel: 4,
@@ -142,7 +142,7 @@ export const LEGACIES: LegacyConfig[] = [
   {
     id: 'full_pockets_next_time',
     name: '下世余粮',
-    description: '只在下一世生效：可分配初始属性点 +2。',
+    description: '只在下一世生效：开局带着更厚的余粮。',
     category: 'boon',
     persistence: 'next-life',
     unlockLevel: 1,

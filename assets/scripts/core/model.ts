@@ -1,11 +1,120 @@
 export const SAVE_VERSION = 2;
-export const RULES_VERSION = 2;
+export const RULES_VERSION = 5;
 
 export const STAT_KEYS = ['health', 'intellect', 'charm', 'wealth'] as const;
 
 export type StatKey = (typeof STAT_KEYS)[number];
 export type Stats = Record<StatKey, number>;
 export type StatDelta = Partial<Record<StatKey, number>>;
+
+export const LIFE_DOMAINS = [
+  'health',
+  'learning',
+  'relationship',
+  'career',
+  'family',
+  'travel',
+  'craft',
+  'legacy',
+] as const;
+export type LifeDomain = (typeof LIFE_DOMAINS)[number];
+
+export const RELATION_KINDS = [
+  'family',
+  'friend',
+  'partner',
+  'child',
+  'mentor',
+  'community',
+] as const;
+export type RelationKind = (typeof RELATION_KINDS)[number];
+
+export interface LifeFact {
+  value: string;
+  sinceAge: number;
+}
+
+export interface LifeRelation {
+  id: string;
+  kind: RelationKind;
+  label: string;
+  closeness: number;
+  strain: number;
+  sinceAge: number;
+  lastTouchedAge: number;
+}
+
+export interface LifeThread {
+  id: string;
+  domain: LifeDomain;
+  label: string;
+  intensity: number;
+  sinceAge: number;
+  lastEventAge: number;
+}
+
+export interface LifeWorld {
+  facts: Record<string, LifeFact>;
+  relations: LifeRelation[];
+  threads: LifeThread[];
+}
+
+export interface RelationChange {
+  id: string;
+  kind?: RelationKind;
+  label?: string;
+  closeness?: number;
+  closenessDelta?: number;
+  strainDelta?: number;
+  remove?: boolean;
+}
+
+export interface ThreadChange {
+  id: string;
+  domain?: LifeDomain;
+  label?: string;
+  intensity?: number;
+  intensityDelta?: number;
+  resolve?: boolean;
+}
+
+export const MARK_SLOTS = ['body', 'mind', 'bond', 'means'] as const;
+export type MarkSlot = (typeof MARK_SLOTS)[number];
+export type MarkNature = 'aura' | 'possession' | 'burden';
+
+export interface MarkDef {
+  id: string;
+  slot: MarkSlot;
+  nature: MarkNature;
+  ranks: [string, string, string];
+  hint: string;
+  boostDomains?: LifeDomain[];
+  mortality?: number;
+  kindBias?: number;
+  harshBias?: number;
+}
+
+export interface LifeMark {
+  id: string;
+  intensity: number;
+}
+
+export interface MarkChange {
+  id: string;
+  intensity?: number;
+  intensityDelta?: number;
+  remove?: boolean;
+}
+
+export interface WorldChange {
+  stats?: StatDelta;
+  addTags?: string[];
+  setFacts?: Record<string, string>;
+  clearFacts?: string[];
+  relations?: RelationChange[];
+  threads?: ThreadChange[];
+  marks?: MarkChange[];
+}
 
 export interface TalentConfig {
   id: string;
@@ -14,6 +123,8 @@ export interface TalentConfig {
   unlockLevel: number;
   effects: StatDelta;
   tags?: string[];
+  world?: WorldChange;
+  grantMarks?: MarkChange[];
 }
 
 export interface FamilyConfig {
@@ -24,6 +135,8 @@ export interface FamilyConfig {
   weight: number;
   effects: StatDelta;
   tags?: string[];
+  world?: WorldChange;
+  grantMarks?: MarkChange[];
 }
 
 export interface EventCondition {
@@ -31,10 +144,26 @@ export interface EventCondition {
   maxStats?: StatDelta;
   requiredTags?: string[];
   forbiddenTags?: string[];
+  anyTags?: string[];
   requiredTalentIds?: string[];
   requiredEventIds?: string[];
   requiredFocusIds?: string[];
   requiredCapabilityTags?: string[];
+  requiredFacts?: Record<string, string>;
+  forbiddenFacts?: string[];
+  anyFacts?: Record<string, string[]>;
+  requiredRelations?: string[];
+  minPressures?: Partial<Record<LifeDomain, number>>;
+  requiredMarks?: Record<string, number>;
+}
+
+export interface EventCoupling {
+  allFacts?: Record<string, string>;
+  anyFacts?: Record<string, string[]>;
+  allTags?: string[];
+  allRelations?: string[];
+  minPressures?: Partial<Record<LifeDomain, number>>;
+  weightBonus: number;
 }
 
 export interface ScheduledEventConfig {
@@ -49,6 +178,7 @@ export interface EventOutcomeConfig {
   text: string;
   effects?: StatDelta;
   addTags?: string[];
+  world?: WorldChange;
   schedule?: ScheduledEventConfig[];
   terminalReason?: string;
 }
@@ -70,8 +200,11 @@ export interface LifeEventConfig {
   unlockLevel?: number;
   once?: boolean;
   themes?: string[];
+  domains?: LifeDomain[];
   effects?: StatDelta;
   addTags?: string[];
+  world?: WorldChange;
+  couplings?: EventCoupling[];
   condition?: EventCondition;
   choices?: EventChoiceConfig[];
   terminalReason?: string;
@@ -86,6 +219,7 @@ export interface EndingConfig {
   maxAge?: number;
   minStats?: StatDelta;
   requiredTags?: string[];
+  requiredMarks?: Record<string, number>;
 }
 
 export interface LifeFocusConfig {
@@ -95,6 +229,7 @@ export interface LifeFocusConfig {
   effects: StatDelta;
   preferredThemes: string[];
   capabilityTags?: string[];
+  world?: WorldChange;
 }
 
 export interface LifeStageConfig {
@@ -160,6 +295,10 @@ export interface GameContent {
   levels: LevelConfig[];
   stages: LifeStageConfig[];
   legacies: LegacyConfig[];
+  marks: MarkDef[];
+  scenarios: ScenarioConfig[];
+  regions: HistoryRegion[];
+  figures: HistoryFigure[];
 }
 
 export interface ReincarnatorProfile {
@@ -175,7 +314,122 @@ export interface ReincarnatorProfile {
 }
 
 export type LifeStatus = 'active' | 'ended' | 'reward-pending' | 'settled';
-export type LifeTurnState = 'awaiting-focus' | 'ready' | 'awaiting-choice';
+export type LifeTurnState =
+  | 'awaiting-focus'
+  | 'awaiting-path'
+  | 'in-scenario'
+  | 'awaiting-choice'
+  | 'scenario-summary'
+  | 'ready';
+
+export type PlayMode = 'free' | 'history';
+export type HistoryRegionId = 'china-ancient' | 'china-modern' | 'west-ancient' | 'west-modern';
+export type ScenarioKind =
+  | 'childhood'
+  | 'studies'
+  | 'commerce'
+  | 'craft'
+  | 'journey'
+  | 'hearth'
+  | 'service'
+  | 'dusk';
+export type ScenarioIcon = 'seed' | 'book' | 'coin' | 'hammer' | 'road' | 'home' | 'seal' | 'lamp';
+
+export interface ScenarioOutcome {
+  id: string;
+  weight: number;
+  text: string;
+  resources?: Record<string, number>;
+  world?: WorldChange;
+  addTags?: string[];
+}
+
+export interface ScenarioAction {
+  id: string;
+  title: string;
+  hint: string;
+  icon: ScenarioIcon;
+  cost?: Record<string, number>;
+  condition?: EventCondition;
+  outcomes: ScenarioOutcome[];
+}
+
+export interface ScenarioBeat {
+  id: string;
+  text: string;
+  weight: number;
+  once?: boolean;
+  condition?: EventCondition;
+  resources?: Record<string, number>;
+  world?: WorldChange;
+  addTags?: string[];
+  choices?: EventChoiceConfig[];
+}
+
+export interface ScenarioConfig {
+  id: string;
+  title: string;
+  kind: ScenarioKind;
+  icon: ScenarioIcon;
+  summary: string;
+  minAge: number;
+  maxAge: number;
+  turns: number;
+  years: number;
+  startResources: Record<string, number>;
+  resourceLabels: Record<string, string>;
+  actions: ScenarioAction[];
+  beats: ScenarioBeat[];
+  modes?: PlayMode[];
+}
+
+export interface HistoryChapter {
+  scenarioId: string;
+  title: string;
+  intro: string;
+  years?: number;
+}
+
+export interface HistoryFigure {
+  id: string;
+  name: string;
+  region: HistoryRegionId;
+  epithet: string;
+  opening: string;
+  grantMarks?: MarkChange[];
+  chapters: HistoryChapter[];
+}
+
+export interface HistoryRegion {
+  id: HistoryRegionId;
+  name: string;
+  era: string;
+  description: string;
+}
+
+export interface ActiveScenario {
+  scenarioId: string;
+  title: string;
+  kind: ScenarioKind;
+  icon: ScenarioIcon;
+  turn: number;
+  maxTurns: number;
+  years: number;
+  resources: Record<string, number>;
+  resourceLabels: Record<string, string>;
+  log: string[];
+  actionIds: string[];
+  beatId?: string;
+  beatText?: string;
+  startedAtAge: number;
+}
+
+export interface ScenarioReport {
+  title: string;
+  years: number;
+  ageAfter: number;
+  lines: string[];
+}
 
 export interface RunCapabilities {
   startingPointBonus: number;
@@ -215,6 +469,7 @@ export interface PendingLifeDecision {
   automaticEffects: StatDelta;
   rerolledEventIds: string[];
   sourceChoiceId?: string;
+  pressureNote?: string;
 }
 
 export interface LifeHistoryEntry {
@@ -226,6 +481,10 @@ export interface LifeHistoryEntry {
   choiceId?: string;
   outcomeId?: string;
   causedByChoiceId?: string;
+  worldChanges?: string[];
+  markChanges?: string[];
+  touchedDomains?: LifeDomain[];
+  pressureNote?: string;
 }
 
 export interface LifeSettlement {
@@ -249,18 +508,27 @@ export interface LifeRun {
   profileLevelAtStart: number;
   status: LifeStatus;
   turnState: LifeTurnState;
+  playMode: PlayMode;
+  historyRegion?: HistoryRegionId;
+  figureId?: string;
+  chapterIndex: number;
   age: number;
   familyId: string;
   talentIds: string[];
   allocation: Stats;
   stats: Stats;
   tags: string[];
+  marks: LifeMark[];
+  world: LifeWorld;
   history: LifeHistoryEntry[];
   currentStageId: string;
   currentFocusId?: string;
   stageSelections: StageSelection[];
   scheduledEvents: ScheduledLifeEvent[];
   pendingDecision?: PendingLifeDecision;
+  currentScenario?: ActiveScenario;
+  scenarioReport?: ScenarioReport;
+  completedScenarioIds: string[];
   capabilities: RunCapabilities;
   fate: RunFateState;
   endReason?: string;
@@ -296,6 +564,27 @@ export function emptyStats(): Stats {
     charm: 0,
     wealth: 0,
   };
+}
+
+export function emptyWorld(): LifeWorld {
+  return {
+    facts: {},
+    relations: [],
+    threads: [],
+  };
+}
+
+export function mergeStatDeltas(...deltas: Array<StatDelta | undefined>): StatDelta {
+  const result = emptyStats();
+  for (const delta of deltas) {
+    if (!delta) {
+      continue;
+    }
+    for (const key of STAT_KEYS) {
+      result[key] += delta[key] ?? 0;
+    }
+  }
+  return result;
 }
 
 export function emptyRunCapabilities(): RunCapabilities {

@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "c4d82f18-7b50-4e3f-a029-3d8f6b02e157",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/core/lifeMarks.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}

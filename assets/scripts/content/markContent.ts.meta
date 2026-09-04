@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "b3c91e07-6a4f-4d2e-9f18-2c7e5a91d046",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/content/markContent.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}

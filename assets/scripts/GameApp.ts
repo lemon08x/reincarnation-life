@@ -13,18 +13,20 @@ import {
 } from 'cc';
 import { GameService } from './app/gameService';
 import {
-  formatStatDelta,
-  getAllocationPointTotal,
+  eligibleScenarioActions,
+  formatHistoryEffects,
+  formatMarkList,
+  formatScenarioResources,
+  formatWorldSummary,
   getChoiceDisplayText,
   getCurrentLifeStage,
   getPendingEvent,
+  listAvailablePaths,
 } from './core/lifeEngine';
 import {
-  emptyStats,
+  HistoryRegionId,
   LegacyCategory,
-  STAT_KEYS,
-  StatKey,
-  Stats,
+  ScenarioIcon,
   TalentDraft,
 } from './core/model';
 import { getLevelProgress, getPermanentBenefits } from './core/progression';
@@ -49,23 +51,18 @@ const COLORS = {
   positive: new Color(53, 111, 82, 255),
 };
 
-const STAT_LABELS: Record<StatKey, string> = {
-  health: '体魄',
-  intellect: '心智',
-  charm: '人缘',
-  wealth: '家底',
-};
-
 @ccclass('GameApp')
 export class GameApp extends Component {
   private service!: GameService;
   private screen: Node | null = null;
   private talentDraft: TalentDraft | null = null;
   private selectedTalentIds: string[] = [];
-  private allocation: Stats = emptyStats();
   private autoPlaying = false;
   private advancing = false;
   private legacyPage = 0;
+  private browseIndex = 0;
+  private browseKey = '';
+  private historyRegion: HistoryRegionId | null = null;
 
   public start(): void {
     view.setDesignResolutionSize(DESIGN_WIDTH, DESIGN_HEIGHT, ResolutionPolicy.SHOW_ALL);
@@ -123,7 +120,7 @@ export class GameApp extends Component {
     this.addLabel(screen, progressText, 0, 135, 520, 38, 21, COLORS.muted, true);
 
     const permanentText = [
-      `永久初始属性　+${benefits.attributePointBonus}`,
+      benefits.attributePointBonus > 0 ? `开局余裕　${benefits.attributePointBonus}` : '开局不额外带余粮',
       `天赋候选数量　${3 + benefits.talentCandidateBonus}`,
       `传承槽位　　　${profile.equippedLegacyIds.length}/${slotCount}`,
     ].join('\n');
@@ -166,21 +163,23 @@ export class GameApp extends Component {
     }
 
     if (currentRun?.status === 'active') {
-      this.addButton(screen, '继续这一世', 0, -230, 540, 88, COLORS.accent, () => this.renderLife());
-      this.addLabel(screen, `当前人生：${currentRun.age} 岁`, 0, -292, 520, 34, 20, COLORS.muted, true);
+      this.addButton(screen, '继续这一世', 0, -210, 540, 80, COLORS.accent, () => this.renderLife());
+      this.addLabel(screen, currentRun.playMode === 'history' ? '历史模式 · 进行中' : `自由模式 · 约 ${currentRun.age} 岁`, 0, -268, 520, 32, 20, COLORS.muted, true);
     } else if (currentRun?.status === 'reward-pending') {
-      this.addButton(screen, '领取本世传承', 0, -230, 540, 88, COLORS.accent, () => this.renderResult());
-      this.addLabel(screen, '选择奖励后才能开启下一世', 0, -292, 520, 34, 20, COLORS.muted, true);
+      this.addButton(screen, '领取本世传承', 0, -210, 540, 80, COLORS.accent, () => this.renderResult());
+      this.addLabel(screen, '选择奖励后才能开启下一世', 0, -268, 520, 32, 20, COLORS.muted, true);
     } else {
-      this.addButton(screen, '开启新的一世', 0, -230, 540, 88, COLORS.accent, () => this.openTalentSelection());
+      this.addButton(screen, '自由模式', -150, -210, 250, 80, COLORS.accent, () => this.openTalentSelection());
+      this.addButton(screen, '历史模式', 150, -210, 250, 80, COLORS.accentDark, () => this.renderHistoryRegions());
+      this.addLabel(screen, '自由是随机一世 · 历史是走在前人路上', 0, -268, 560, 32, 18, COLORS.muted, true);
       if (currentRun?.status === 'settled') {
         this.addButton(
           screen,
           '查看上一世结算',
           0,
-          -332,
+          -345,
           540,
-          68,
+          64,
           COLORS.paperDark,
           () => this.renderResult(),
           true,
@@ -213,7 +212,6 @@ export class GameApp extends Component {
     try {
       this.talentDraft = this.service.createTalentDraft();
       this.selectedTalentIds = [];
-      this.allocation = emptyStats();
       this.renderTalentSelection();
     } catch (error) {
       this.renderError(error);
@@ -239,8 +237,11 @@ export class GameApp extends Component {
         return;
       }
       const selected = this.selectedTalentIds.includes(talent.id);
-      const effects = formatStatDelta(talent.effects);
-      const title = `${selected ? '◆ ' : ''}${talent.name}　${effects}`;
+      const markText = (talent.grantMarks ?? [])
+        .map((mark) => this.service.getContent().marks.find((item) => item.id === mark.id)?.ranks[(mark.intensity ?? 1) - 1])
+        .filter(Boolean)
+        .join(' · ');
+      const title = `${selected ? '◆ ' : ''}${talent.name}${markText ? `　${markText}` : ''}`;
       const body = `${title}\n${talent.description}`;
       this.addButton(
         screen,
@@ -261,13 +262,13 @@ export class GameApp extends Component {
     const isReady = this.selectedTalentIds.length === draft.requiredSelectionCount;
     this.addButton(
       screen,
-      isReady ? '分配初始属性' : `还需选择 ${draft.requiredSelectionCount - this.selectedTalentIds.length} 项`,
+      isReady ? '投身这一世' : `还需选择 ${draft.requiredSelectionCount - this.selectedTalentIds.length} 项`,
       0,
       -520,
       560,
       88,
       isReady ? COLORS.accent : COLORS.disabled,
-      () => this.renderAllocation(),
+      () => this.beginLife(),
       isReady,
     );
     this.addTextAction(screen, '返回轮回空间', 0, -585, () => this.renderHome());
@@ -286,101 +287,13 @@ export class GameApp extends Component {
     this.renderTalentSelection();
   }
 
-  private renderAllocation(): void {
-    const screen = this.createScreen('Allocation');
-    const profile = this.service.getProfile();
-    const totalPoints = getAllocationPointTotal(profile, this.service.getContent());
-    const spentPoints = STAT_KEYS.reduce((sum, key) => sum + this.allocation[key], 0);
-    const remaining = totalPoints - spentPoints;
-    const talentNames = this.selectedTalentIds
-      .map((id) => this.service.getContent().talents.find((talent) => talent.id === id)?.name)
-      .filter(Boolean)
-      .join(' · ');
-
-    this.addSectionTitle(screen, '分配初始属性', `本世天赋：${talentNames}`);
-    this.addLabel(screen, `剩余点数　${remaining}`, 0, 340, 520, 70, 38, remaining === 0 ? COLORS.positive : COLORS.accent, true, true);
-
-    STAT_KEYS.forEach((key, index) => {
-      const y = 205 - index * 145;
-      this.addPanel(screen, 0, y, 590, 112, COLORS.paperLight, 20, COLORS.paperDark);
-      this.addLabel(screen, STAT_LABELS[key], -190, y, 140, 60, 28, COLORS.ink, true, true);
-      this.addButton(
-        screen,
-        '−',
-        70,
-        y,
-        72,
-        64,
-        this.allocation[key] > 0 ? COLORS.paperDark : COLORS.disabled,
-        () => this.adjustAllocation(key, -1),
-        this.allocation[key] > 0,
-        COLORS.ink,
-        32,
-      );
-      this.addLabel(screen, String(this.allocation[key]), 165, y, 80, 64, 34, COLORS.ink, true, true);
-      this.addButton(
-        screen,
-        '+',
-        260,
-        y,
-        72,
-        64,
-        remaining > 0 ? COLORS.accent : COLORS.disabled,
-        () => this.adjustAllocation(key, 1),
-        remaining > 0,
-        COLORS.white,
-        31,
-      );
-    });
-
-    this.addLabel(
-      screen,
-      `每项基础值为 2，天赋与家庭还会继续修正属性`,
-      0,
-      -395,
-      590,
-      50,
-      21,
-      COLORS.muted,
-      true,
-    );
-    this.addButton(
-      screen,
-      remaining === 0 ? '投身这一世' : '请分配全部点数',
-      0,
-      -490,
-      560,
-      88,
-      remaining === 0 ? COLORS.accent : COLORS.disabled,
-      () => this.beginLife(),
-      remaining === 0,
-    );
-    this.addTextAction(screen, '返回重选天赋', 0, -575, () => this.renderTalentSelection());
-  }
-
-  private adjustAllocation(key: StatKey, delta: number): void {
-    const totalPoints = getAllocationPointTotal(this.service.getProfile(), this.service.getContent());
-    const spentPoints = STAT_KEYS.reduce((sum, statKey) => sum + this.allocation[statKey], 0);
-    if (delta > 0 && spentPoints >= totalPoints) {
-      return;
-    }
-    if (delta < 0 && this.allocation[key] <= 0) {
-      return;
-    }
-    this.allocation = {
-      ...this.allocation,
-      [key]: this.allocation[key] + delta,
-    };
-    this.renderAllocation();
-  }
-
   private beginLife(): void {
     if (!this.talentDraft) {
       this.renderError(new Error('缺少本世天赋信息。'));
       return;
     }
     try {
-      this.service.startNewLife(this.talentDraft, this.selectedTalentIds, this.allocation);
+      this.service.startNewLife(this.talentDraft, this.selectedTalentIds);
       this.renderLife();
     } catch (error) {
       this.renderError(error);
@@ -400,14 +313,24 @@ export class GameApp extends Component {
       this.renderResult();
       return;
     }
-    if (run.turnState === 'awaiting-focus') {
+    if (run.turnState === 'awaiting-path' || run.turnState === 'awaiting-focus') {
       this.stopAutoPlay();
-      this.renderStageFocus();
+      this.renderPathSelect();
+      return;
+    }
+    if (run.turnState === 'in-scenario') {
+      this.stopAutoPlay();
+      this.renderScenario();
+      return;
+    }
+    if (run.turnState === 'scenario-summary') {
+      this.stopAutoPlay();
+      this.renderScenarioSummary();
       return;
     }
     if (run.turnState === 'awaiting-choice') {
       this.stopAutoPlay();
-      this.renderDecision();
+      this.renderChoiceBrowse();
       return;
     }
 
@@ -424,25 +347,45 @@ export class GameApp extends Component {
       screen,
       `${family?.name ?? '未知家庭'}　·　${stage.name}${focus ? `：${focus.name}` : ''}`,
       0,
-      430,
+      442,
       600,
-      45,
-      22,
+      36,
+      21,
       COLORS.muted,
       true,
     );
+    const worldSummary = formatWorldSummary(run.world);
+    this.addLabel(
+      screen,
+      worldSummary || '生活还在慢慢展开',
+      0,
+      404,
+      600,
+      32,
+      20,
+      COLORS.accentDark,
+      true,
+    );
 
-    STAT_KEYS.forEach((key, index) => {
-      const x = -243 + index * 162;
-      this.addPanel(screen, x, 345, 142, 86, COLORS.paperLight, 18, COLORS.paperDark);
-      this.addLabel(screen, STAT_LABELS[key], x, 365, 126, 30, 19, COLORS.muted, true);
-      this.addLabel(screen, String(run.stats[key]), x, 330, 126, 40, 29, COLORS.ink, true, true);
-    });
+    this.addPanel(screen, 0, 332, 620, 86, COLORS.paperLight, 18, COLORS.paperDark);
+    this.addLabel(
+      screen,
+      formatMarkList(run.marks ?? [], content.marks),
+      0,
+      332,
+      580,
+      64,
+      22,
+      COLORS.ink,
+      true,
+      false,
+      32,
+    );
 
     this.addPanel(screen, 0, 75, 620, 410, COLORS.paperLight, 28, COLORS.paperDark);
     this.addLabel(screen, `${latest.age} 岁`, -245, 230, 100, 45, 24, COLORS.accent, true, true);
     this.addLabel(screen, latest.text, 0, 80, 520, 230, 31, COLORS.ink, true, true, 48);
-    const effectText = formatStatDelta(latest.effects) || '平稳度过';
+    const effectText = formatHistoryEffects(latest) || '平稳度过';
     this.addLabel(screen, effectText, 0, -73, 520, 44, 22, COLORS.positive, true, true);
 
     const recent = run.history.slice(-4, -1).reverse();
@@ -476,61 +419,177 @@ export class GameApp extends Component {
     this.addTextAction(screen, '返回轮回空间（本世已自动保存）', 0, -565, () => this.renderHome());
   }
 
-  private renderStageFocus(): void {
-    const run = this.service.getCurrentRun();
-    if (!run || run.status !== 'active' || run.turnState !== 'awaiting-focus') {
-      this.renderLife();
-      return;
-    }
-    const stage = getCurrentLifeStage(run, this.service.getContent());
-    const screen = this.createScreen('StageFocus');
-    const timing = run.age < stage.minAge
-      ? `即将进入 ${stage.minAge}—${stage.maxAge} 岁的${stage.name}`
-      : `${stage.minAge}—${stage.maxAge} 岁 · ${stage.name}`;
-
-    this.addSectionTitle(screen, `这一程，想怎样度过？`, timing);
-    this.addLabel(
-      screen,
-      '你的选择会立刻带来一点成长，并让这一阶段更常遇见相关经历。',
-      0,
-      395,
-      590,
-      55,
-      21,
-      COLORS.muted,
-      true,
-    );
-
-    stage.focuses.forEach((focus, index) => {
+  private renderHistoryRegions(): void {
+    const screen = this.createScreen('HistoryRegions');
+    this.addSectionTitle(screen, '历史模式', '古今中外 · 走在前人留下的路上');
+    const regions = this.service.getContent().regions;
+    regions.forEach((region, index) => {
+      const y = 300 - index * 155;
       this.addButton(
         screen,
-        `${focus.name}\n${focus.description}`,
+        `${region.era}\n${region.name}\n${region.description}`,
         0,
-        245 - index * 205,
+        y,
         610,
-        170,
+        140,
         COLORS.paperLight,
-        () => this.selectStageFocus(focus.id),
+        () => {
+          this.historyRegion = region.id;
+          this.renderHistoryFigures();
+        },
         true,
         COLORS.ink,
-        24,
+        22,
         COLORS.paperDark,
       );
     });
-
-    this.addTextAction(screen, '返回轮回空间（稍后再选）', 0, -565, () => this.renderHome());
+    this.addTextAction(screen, '返回轮回空间', 0, -565, () => this.renderHome());
   }
 
-  private selectStageFocus(focusId: string): void {
-    try {
-      this.service.chooseCurrentStageFocus(focusId);
-      this.renderLife();
-    } catch (error) {
-      this.renderError(error);
+  private renderHistoryFigures(): void {
+    const regionId = this.historyRegion;
+    if (!regionId) {
+      this.renderHistoryRegions();
+      return;
     }
+    const content = this.service.getContent();
+    const region = content.regions.find((item) => item.id === regionId);
+    const figures = content.figures.filter((item) => item.region === regionId);
+    const screen = this.createScreen('HistoryFigures');
+    this.addSectionTitle(screen, region?.name ?? '历史', '选一条被走过的路，选择仍由你来做');
+    figures.forEach((figure, index) => {
+      const y = 280 - index * 175;
+      this.addButton(
+        screen,
+        `${figure.name}　·　${figure.epithet}\n${figure.opening}`,
+        0,
+        y,
+        610,
+        155,
+        COLORS.paperLight,
+        () => {
+          this.service.startHistoryRun(figure.id);
+          this.renderLife();
+        },
+        true,
+        COLORS.ink,
+        22,
+        COLORS.paperDark,
+      );
+    });
+    this.addTextAction(screen, '返回地域', 0, -565, () => this.renderHistoryRegions());
   }
 
-  private renderDecision(): void {
+  private renderPathSelect(): void {
+    const run = this.service.getCurrentRun();
+    if (!run || run.status !== 'active') {
+      this.renderHome();
+      return;
+    }
+    const content = this.service.getContent();
+    const paths = listAvailablePaths(run, content);
+    const screen = this.createScreen('Path');
+    const caption = run.playMode === 'history'
+      ? `约 ${run.age} 岁 · 历史路上的下一程`
+      : `约 ${run.age} 岁 · 选一程走进去`;
+    this.addSectionTitle(screen, '此刻要走进哪一程？', caption);
+    this.addLabel(screen, formatMarkList(run.marks ?? [], content.marks), 0, 390, 600, 40, 20, COLORS.accentDark, true);
+    if (paths.length === 0) {
+      this.addLabel(screen, '没有可走的路了。', 0, 80, 520, 80, 28, COLORS.ink, true);
+    }
+    paths.forEach((path, index) => {
+      const y = 250 - index * 175;
+      const card = this.addPanel(screen, 0, y, 610, 155, COLORS.paperLight, 24, COLORS.paperDark);
+      this.addGlyph(card, path.icon, -230, 10, COLORS.accent);
+      this.addLabel(card, path.title, 40, 38, 360, 40, 30, COLORS.ink, false, true);
+      this.addLabel(card, path.summary, 40, -18, 380, 70, 20, COLORS.muted, false, false, 28);
+      const button = card.addComponent(Button);
+      button.transition = Button.Transition.NONE;
+      card.on(Button.EventType.CLICK, () => {
+        try {
+          this.service.chooseCurrentPath(path.id);
+          this.renderLife();
+        } catch (error) {
+          this.renderError(error);
+        }
+      }, this);
+    });
+    this.addTextAction(screen, '返回轮回空间（本世已自动保存）', 0, -565, () => this.renderHome());
+  }
+
+  private renderScenario(): void {
+    const run = this.service.getCurrentRun();
+    if (!run?.currentScenario || run.status !== 'active') {
+      this.renderLife();
+      return;
+    }
+    const content = this.service.getContent();
+    const scene = run.currentScenario;
+    const actions = eligibleScenarioActions(run, content);
+    const screen = this.createScreen('Scenario');
+    this.addSceneFrame(screen);
+    this.addLabel(screen, scene.title, 0, 530, 560, 50, 36, COLORS.ink, true, true);
+    this.addLabel(
+      screen,
+      `约 ${run.age} 岁　·　第 ${Math.min(scene.turn + 1, scene.maxTurns)} / ${scene.maxTurns} 回`,
+      0,
+      480,
+      560,
+      32,
+      20,
+      COLORS.muted,
+      true,
+    );
+    this.addLabel(screen, formatScenarioResources(scene), 0, 430, 600, 36, 22, COLORS.accentDark, true);
+
+    this.addPanel(screen, 0, 175, 610, 230, COLORS.paperLight, 24, COLORS.paperDark);
+    this.addGlyph(screen, scene.icon, 0, 250, COLORS.accent);
+    this.addLabel(screen, scene.beatText ?? scene.log[scene.log.length - 1] ?? scene.title, 0, 145, 540, 130, 24, COLORS.ink, true, false, 34);
+
+    const count = Math.min(3, actions.length);
+    actions.slice(0, 3).forEach((action, index) => {
+      const x = count === 1 ? 0 : count === 2 ? -150 + index * 300 : -205 + index * 205;
+      const card = this.addPanel(screen, x, -160, count === 3 ? 190 : 280, 210, COLORS.paperLight, 20, COLORS.paperDark);
+      this.addGlyph(card, action.icon, 0, 60, COLORS.accent);
+      this.addLabel(card, action.title, 0, 8, 170, 40, 24, COLORS.ink, true, true);
+      this.addLabel(card, action.hint, 0, -48, 170, 70, 18, COLORS.muted, true, false, 24);
+      const button = card.addComponent(Button);
+      button.transition = Button.Transition.NONE;
+      card.on(Button.EventType.CLICK, () => {
+        try {
+          this.service.resolveCurrentScenarioAction(action.id);
+          this.renderLife();
+        } catch (error) {
+          this.renderError(error);
+        }
+      }, this);
+    });
+    this.addTextAction(screen, '返回轮回空间（本世已自动保存）', 0, -565, () => this.renderHome());
+  }
+
+  private renderScenarioSummary(): void {
+    const run = this.service.getCurrentRun();
+    if (!run?.scenarioReport) {
+      this.renderLife();
+      return;
+    }
+    const report = run.scenarioReport;
+    const screen = this.createScreen('Summary');
+    this.addSectionTitle(screen, `${report.title} · 一程结束`, `大约过了 ${report.years} 年，如今约 ${report.ageAfter} 岁`);
+    this.addPanel(screen, 0, 80, 610, 420, COLORS.paperLight, 28, COLORS.paperDark);
+    this.addLabel(screen, report.lines.join('\n\n'), 0, 80, 540, 360, 24, COLORS.ink, true, false, 36);
+    this.addButton(screen, '下一程', 0, -430, 560, 88, COLORS.accent, () => {
+      try {
+        this.service.continueCurrentScenario();
+        this.renderLife();
+      } catch (error) {
+        this.renderError(error);
+      }
+    });
+    this.addTextAction(screen, '返回轮回空间', 0, -530, () => this.renderHome());
+  }
+
+  private renderChoiceBrowse(): void {
     const run = this.service.getCurrentRun();
     if (!run || run.status !== 'active' || run.turnState !== 'awaiting-choice' || !run.pendingDecision) {
       this.renderLife();
@@ -541,61 +600,126 @@ export class GameApp extends Component {
     const choices = run.pendingDecision.choiceIds
       .map((choiceId) => event.choices?.find((choice) => choice.id === choiceId))
       .filter((choice): choice is NonNullable<typeof choice> => Boolean(choice));
-    const screen = this.createScreen('Decision');
-    const sourceText = run.pendingDecision.sourceChoiceId
-      ? '这是往日选择的回响，无法改写'
-      : '关键时刻 · 由你决定接下来怎么走';
+    if (this.browseKey !== event.id) {
+      this.browseKey = event.id;
+      this.browseIndex = 0;
+    }
+    const index = Math.max(0, Math.min(this.browseIndex, choices.length - 1));
+    const choice = choices[index];
+    const screen = this.createScreen('ChoiceBrowse');
+    this.addSceneFrame(screen);
+    const sourceText = run.pendingDecision.pressureNote ?? (run.currentScenario ? run.currentScenario.title : '关键时刻');
+    this.addLabel(screen, `${run.age} 岁 · ${sourceText}`, 0, 530, 600, 36, 20, COLORS.muted, true);
+    this.addPanel(screen, 0, 355, 610, 150, COLORS.paperLight, 22, COLORS.paperDark);
+    this.addLabel(screen, event.text, 0, 355, 550, 120, 24, COLORS.ink, true, false, 34);
 
-    this.addSectionTitle(screen, `${run.age} 岁 · 需要你的选择`, sourceText);
-    this.addPanel(screen, 0, 342, 610, 150, COLORS.paperLight, 24, COLORS.paperDark);
-    this.addLabel(screen, event.text, 0, 342, 550, 112, 27, COLORS.ink, true, true, 38, true);
+    if (choice) {
+      this.addPanel(screen, 0, 40, 610, 320, COLORS.paperLight, 28, COLORS.accent);
+      this.addLabel(screen, `${index + 1} / ${choices.length}`, 0, 160, 200, 30, 18, COLORS.accent, true);
+      this.addLabel(screen, choice.text, 0, 95, 520, 70, 32, COLORS.ink, true, true);
+      this.addLabel(screen, choice.preview, 0, 10, 500, 80, 22, COLORS.muted, true, false, 32);
+      const foresight = getChoiceDisplayText(run, choice, content);
+      const extra = foresight.includes('｜可能：') ? foresight.split('｜可能：')[1] : '';
+      if (extra) {
+        this.addLabel(screen, extra, 0, -70, 500, 50, 18, COLORS.positive, true);
+      }
+    }
 
-    const choiceHeight = choices.length >= 4 ? 126 : 146;
-    const spacing = choices.length >= 4 ? 138 : 162;
-    const firstY = 202;
-    choices.forEach((choice, index) => {
-      this.addButton(
-        screen,
-        getChoiceDisplayText(run, choice),
-        0,
-        firstY - index * spacing,
-        610,
-        choiceHeight,
-        COLORS.paperLight,
-        () => this.selectEventChoice(choice.id),
-        true,
-        COLORS.ink,
-        22,
-        COLORS.paperDark,
-      );
+    this.addButton(screen, '上一张', -200, -220, 180, 70, COLORS.paperDark, () => {
+      this.browseIndex = (index + choices.length - 1) % choices.length;
+      this.renderChoiceBrowse();
+    }, choices.length > 1, COLORS.ink);
+    this.addButton(screen, '选定此路', 0, -220, 200, 70, COLORS.accent, () => {
+      if (!choice) {
+        return;
+      }
+      try {
+        this.service.resolveCurrentChoice(choice.id);
+        this.renderLife();
+      } catch (error) {
+        this.renderError(error);
+      }
     });
+    this.addButton(screen, '下一张', 200, -220, 180, 70, COLORS.paperDark, () => {
+      this.browseIndex = (index + 1) % choices.length;
+      this.renderChoiceBrowse();
+    }, choices.length > 1, COLORS.ink);
 
     const canReroll = run.fate.eventRerollsRemaining > 0 && !run.pendingDecision.sourceChoiceId;
     if (canReroll) {
-      this.addTextAction(
-        screen,
-        `改写这次遭遇（本世剩余 ${run.fate.eventRerollsRemaining} 次）`,
-        0,
-        -500,
-        () => this.rerollDecision(),
-      );
+      this.addTextAction(screen, `改写这次遭遇（剩余 ${run.fate.eventRerollsRemaining} 次）`, 0, -330, () => this.rerollDecision());
     }
-    this.addTextAction(screen, '返回轮回空间（选择已保存）', 0, -570, () => this.renderHome());
+    this.addTextAction(screen, '返回轮回空间（选择已保存）', 0, -400, () => this.renderHome());
   }
 
-  private selectEventChoice(choiceId: string): void {
-    try {
-      this.service.resolveCurrentChoice(choiceId);
-      this.renderLife();
-    } catch (error) {
-      this.renderError(error);
+  private addSceneFrame(parent: Node): void {
+    this.addPanel(parent, 0, 40, 660, 980, new Color(252, 249, 242, 255), 36, COLORS.paperDark);
+    const seal = this.createNode(parent, 'Seal', 250, 500, 64, 64);
+    const graphics = seal.addComponent(Graphics);
+    graphics.strokeColor = new Color(174, 67, 47, 90);
+    graphics.lineWidth = 3;
+    graphics.circle(0, 0, 26);
+    graphics.stroke();
+    graphics.circle(0, 0, 18);
+    graphics.stroke();
+  }
+
+  private addGlyph(parent: Node, icon: ScenarioIcon, x: number, y: number, color: Color): void {
+    const node = this.createNode(parent, `Glyph:${icon}`, x, y, 72, 72);
+    const graphics = node.addComponent(Graphics);
+    graphics.strokeColor = color;
+    graphics.fillColor = color;
+    graphics.lineWidth = 3;
+    if (icon === 'coin') {
+      graphics.circle(0, 0, 22);
+      graphics.stroke();
+      graphics.circle(0, 0, 10);
+      graphics.stroke();
+    } else if (icon === 'book') {
+      graphics.rect(-18, -22, 36, 44);
+      graphics.stroke();
+      graphics.moveTo(0, -22);
+      graphics.lineTo(0, 22);
+      graphics.stroke();
+    } else if (icon === 'road') {
+      graphics.moveTo(-22, -18);
+      graphics.lineTo(0, 22);
+      graphics.lineTo(22, -18);
+      graphics.stroke();
+    } else if (icon === 'home') {
+      graphics.moveTo(0, 22);
+      graphics.lineTo(-22, 2);
+      graphics.lineTo(-22, -20);
+      graphics.lineTo(22, -20);
+      graphics.lineTo(22, 2);
+      graphics.close();
+      graphics.stroke();
+    } else if (icon === 'hammer') {
+      graphics.rect(-20, 8, 40, 12);
+      graphics.stroke();
+      graphics.rect(-4, -22, 8, 30);
+      graphics.stroke();
+    } else if (icon === 'seal') {
+      graphics.roundRect(-18, -18, 36, 36, 6);
+      graphics.stroke();
+    } else if (icon === 'lamp') {
+      graphics.circle(0, 8, 14);
+      graphics.stroke();
+      graphics.rect(-4, -20, 8, 16);
+      graphics.stroke();
+    } else {
+      graphics.circle(0, 0, 8);
+      graphics.fill();
+      graphics.circle(0, 0, 20);
+      graphics.stroke();
     }
   }
 
   private rerollDecision(): void {
     try {
       this.service.rerollCurrentDecision();
-      this.renderDecision();
+      this.browseKey = '';
+      this.renderChoiceBrowse();
     } catch (error) {
       this.renderError(error);
     }
@@ -674,7 +798,11 @@ export class GameApp extends Component {
     this.addPanel(screen, 0, 55, 610, 500, COLORS.paperLight, 28, COLORS.paperDark);
     this.addLabel(screen, `${run.age} 岁`, -185, 230, 180, 60, 35, COLORS.ink, true, true);
     this.addLabel(screen, `人生评价 ${settlement.score}`, 140, 230, 250, 60, 28, COLORS.ink, true, true);
-    this.addLabel(screen, run.endReason ?? '', 0, 160, 520, 62, 22, COLORS.muted, true, false, 31);
+    this.addLabel(screen, run.endReason ?? '', 0, 168, 520, 48, 22, COLORS.muted, true, false, 31);
+    const livedAs = formatWorldSummary(run.world);
+    if (livedAs) {
+      this.addLabel(screen, livedAs, 0, 128, 520, 32, 20, COLORS.accentDark, true);
+    }
     this.addDivider(screen, 0, 112, 500);
 
     this.addLabel(screen, `本世获得　+${settlement.earnedExp} 轮回经验`, 0, 58, 530, 52, 29, COLORS.accentDark, true, true);

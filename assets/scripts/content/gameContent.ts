@@ -1,10 +1,17 @@
 import { GameContent } from '../core/model';
+import { HISTORY_FIGURES, HISTORY_REGIONS } from './historyContent';
 import { LEGACIES } from './legacyContent';
 import { LIFE_STAGES } from './lifeStages';
+import { MARKS } from './markContent';
+import { SCENARIOS } from './scenarioContent';
 
 export const GAME_CONTENT: GameContent = {
   stages: LIFE_STAGES,
   legacies: LEGACIES,
+  marks: MARKS,
+  scenarios: SCENARIOS,
+  regions: HISTORY_REGIONS,
+  figures: HISTORY_FIGURES,
   levels: [
     {
       level: 1,
@@ -14,7 +21,7 @@ export const GAME_CONTENT: GameContent = {
     {
       level: 2,
       requiredExp: 50,
-      rewardText: '初始属性点 +1，并解锁预见类传承',
+      rewardText: '开局多一份余裕，并解锁预见类传承',
       benefits: { attributePointBonus: 1 },
     },
     {
@@ -49,6 +56,10 @@ export const GAME_CONTENT: GameContent = {
       unlockLevel: 1,
       effects: { health: 3 },
       tags: ['strong_body'],
+      grantMarks: [{ id: 'sturdy', intensity: 2 }],
+      world: {
+        threads: [{ id: 'body_resilience', domain: 'health', label: '身子骨', intensity: 2 }],
+      },
     },
     {
       id: 'quick_learner',
@@ -57,6 +68,10 @@ export const GAME_CONTENT: GameContent = {
       unlockLevel: 1,
       effects: { intellect: 3 },
       tags: ['quick_learner'],
+      grantMarks: [{ id: 'clarity', intensity: 2 }],
+      world: {
+        threads: [{ id: 'learning_mind', domain: 'learning', label: '好学', intensity: 2 }],
+      },
     },
     {
       id: 'friendly_face',
@@ -65,6 +80,10 @@ export const GAME_CONTENT: GameContent = {
       unlockLevel: 1,
       effects: { charm: 3 },
       tags: ['friendly'],
+      grantMarks: [{ id: 'presence', intensity: 2 }],
+      world: {
+        threads: [{ id: 'social_ease', domain: 'relationship', label: '人缘', intensity: 2 }],
+      },
     },
     {
       id: 'careful_saver',
@@ -73,6 +92,7 @@ export const GAME_CONTENT: GameContent = {
       unlockLevel: 1,
       effects: { wealth: 3 },
       tags: ['saver'],
+      grantMarks: [{ id: 'savings', intensity: 2 }],
     },
     {
       id: 'steady_heart',
@@ -81,6 +101,7 @@ export const GAME_CONTENT: GameContent = {
       unlockLevel: 1,
       effects: { health: 1, intellect: 1 },
       tags: ['steady'],
+      grantMarks: [{ id: 'vitality', intensity: 1 }, { id: 'clarity', intensity: 1 }],
     },
     {
       id: 'good_listener',
@@ -89,6 +110,10 @@ export const GAME_CONTENT: GameContent = {
       unlockLevel: 1,
       effects: { charm: 2, intellect: 1 },
       tags: ['listener'],
+      grantMarks: [{ id: 'presence', intensity: 1 }, { id: 'clarity', intensity: 1 }],
+      world: {
+        threads: [{ id: 'social_ease', domain: 'relationship', label: '人缘', intensity: 2 }],
+      },
     },
     {
       id: 'lucky_pocket',
@@ -97,6 +122,7 @@ export const GAME_CONTENT: GameContent = {
       unlockLevel: 1,
       effects: { wealth: 2, charm: 1 },
       tags: ['lucky'],
+      grantMarks: [{ id: 'lucky', intensity: 2 }],
     },
     {
       id: 'outdoor_child',
@@ -105,6 +131,13 @@ export const GAME_CONTENT: GameContent = {
       unlockLevel: 1,
       effects: { health: 2, charm: 1 },
       tags: ['outdoors'],
+      grantMarks: [{ id: 'sturdy', intensity: 1 }, { id: 'vitality', intensity: 1 }],
+      world: {
+        threads: [
+          { id: 'body_resilience', domain: 'health', label: '身子骨', intensity: 2 },
+          { id: 'open_road', domain: 'travel', label: '野外', intensity: 1 },
+        ],
+      },
     },
     {
       id: 'second_chance',
@@ -113,6 +146,7 @@ export const GAME_CONTENT: GameContent = {
       unlockLevel: 4,
       effects: { health: 2, wealth: 1 },
       tags: ['second_chance'],
+      grantMarks: [{ id: 'lucky', intensity: 1 }, { id: 'vitality', intensity: 1 }],
     },
     {
       id: 'late_bloomer',
@@ -121,6 +155,10 @@ export const GAME_CONTENT: GameContent = {
       unlockLevel: 6,
       effects: { health: 1, intellect: 1, charm: 1 },
       tags: ['late_bloomer'],
+      grantMarks: [{ id: 'clarity', intensity: 1 }],
+      world: {
+        threads: [{ id: 'learning_mind', domain: 'learning', label: '慢慢长成', intensity: 1 }],
+      },
     },
   ],
 
@@ -133,6 +171,12 @@ export const GAME_CONTENT: GameContent = {
       weight: 4,
       effects: { health: 1, wealth: 1 },
       tags: ['stable_home'],
+      grantMarks: [{ id: 'means', intensity: 1 }, { id: 'vitality', intensity: 1 }],
+      world: {
+        setFacts: { household: 'stable' },
+        relations: [{ id: 'parents', kind: 'family', label: '家人', closeness: 6 }],
+        threads: [{ id: 'family_origin', domain: 'family', label: '原生家庭', intensity: 2 }],
+      },
     },
     {
       id: 'bookish_home',
@@ -142,6 +186,14 @@ export const GAME_CONTENT: GameContent = {
       weight: 3,
       effects: { intellect: 2, wealth: -1 },
       tags: ['bookish_home'],
+      grantMarks: [{ id: 'clarity', intensity: 2 }, { id: 'want', intensity: 1 }],
+      world: {
+        setFacts: { household: 'books' },
+        threads: [
+          { id: 'family_origin', domain: 'family', label: '原生家庭', intensity: 1 },
+          { id: 'learning_mind', domain: 'learning', label: '家里的书', intensity: 2 },
+        ],
+      },
     },
     {
       id: 'market_home',
@@ -151,6 +203,14 @@ export const GAME_CONTENT: GameContent = {
       weight: 3,
       effects: { wealth: 2, charm: 1 },
       tags: ['market_home'],
+      grantMarks: [{ id: 'means', intensity: 2 }, { id: 'presence', intensity: 1 }],
+      world: {
+        setFacts: { household: 'shop' },
+        threads: [
+          { id: 'family_origin', domain: 'family', label: '原生家庭', intensity: 1 },
+          { id: 'career_life', domain: 'career', label: '家里的生意', intensity: 2 },
+        ],
+      },
     },
     {
       id: 'big_family',
@@ -160,6 +220,15 @@ export const GAME_CONTENT: GameContent = {
       weight: 3,
       effects: { charm: 2, health: 1 },
       tags: ['big_family'],
+      grantMarks: [{ id: 'presence', intensity: 2 }, { id: 'vitality', intensity: 1 }],
+      world: {
+        setFacts: { household: 'crowded' },
+        relations: [
+          { id: 'parents', kind: 'family', label: '家人', closeness: 7 },
+          { id: 'kin', kind: 'family', label: '亲戚', closeness: 5 },
+        ],
+        threads: [{ id: 'family_origin', domain: 'family', label: '原生家庭', intensity: 3 }],
+      },
     },
     {
       id: 'traveling_home',
@@ -169,6 +238,15 @@ export const GAME_CONTENT: GameContent = {
       weight: 2,
       effects: { intellect: 1, charm: 2 },
       tags: ['many_hometowns'],
+      grantMarks: [{ id: 'presence', intensity: 1 }, { id: 'clarity', intensity: 1 }],
+      world: {
+        setFacts: { residence: 'moving', household: 'moving' },
+        relations: [{ id: 'parents', kind: 'family', label: '家人', closeness: 4 }],
+        threads: [
+          { id: 'family_origin', domain: 'family', label: '原生家庭', intensity: 1 },
+          { id: 'open_road', domain: 'travel', label: '迁居', intensity: 2 },
+        ],
+      },
     },
   ],
 
@@ -219,6 +297,11 @@ export const GAME_CONTENT: GameContent = {
       once: true,
       effects: { intellect: 1, charm: 1 },
       addTags: ['started_school'],
+      domains: ['learning', 'relationship'],
+      world: {
+        setFacts: { schooling: 'started' },
+        threads: [{ id: 'school_life', domain: 'learning', label: '上学', intensity: 2 }],
+      },
     },
     {
       id: 'library_corner',
@@ -249,6 +332,10 @@ export const GAME_CONTENT: GameContent = {
             text: '你攒了很久零花钱才赔清，对方从此记住了你的担当。',
             effects: { charm: 2, wealth: -1 },
             addTags: ['takes_responsibility'],
+            world: {
+              relations: [{ id: 'neighbor', kind: 'community', label: '邻居', closeness: 4 }],
+              threads: [{ id: 'responsibility', domain: 'relationship', label: '被人记得的担当', intensity: 2 }],
+            },
             schedule: [{ eventId: 'neighbor_trust', afterYears: 5, windowYears: 3 }],
           }],
         },
@@ -262,6 +349,9 @@ export const GAME_CONTENT: GameContent = {
             text: '事情没有查到你头上，可每次路过那扇窗，你都会加快脚步。',
             effects: { intellect: 1, charm: -1 },
             addTags: ['hid_mistake'],
+            world: {
+              relations: [{ id: 'neighbor', kind: 'community', label: '邻居', closeness: 1, strainDelta: 2 }],
+            },
           }],
         },
       ],
@@ -277,6 +367,10 @@ export const GAME_CONTENT: GameContent = {
       effects: { wealth: 2, charm: 1 },
       condition: { requiredTags: ['takes_responsibility'] },
       addTags: ['trusted_young'],
+      world: {
+        relations: [{ id: 'neighbor', closenessDelta: 2 }],
+        threads: [{ id: 'career_life', domain: 'career', label: '谋生', intensity: 2 }],
+      },
     },
     {
       id: 'school_sports',
@@ -314,6 +408,11 @@ export const GAME_CONTENT: GameContent = {
       once: true,
       effects: { charm: 2 },
       addTags: ['lifelong_friend'],
+      domains: ['relationship'],
+      world: {
+        relations: [{ id: 'friend', kind: 'friend', label: '故人', closeness: 6 }],
+        threads: [{ id: 'friendship', domain: 'relationship', label: '友情', intensity: 3 }],
+      },
     },
     {
       id: 'exam_season',
@@ -334,6 +433,10 @@ export const GAME_CONTENT: GameContent = {
             text: '疲惫没有白费，你第一次看见专注积累出的距离。',
             effects: { intellect: 3, health: -1 },
             addTags: ['finished_exam', 'exam_focus'],
+            world: {
+              setFacts: { schooling: 'exam' },
+              threads: [{ id: 'school_life', domain: 'learning', label: '备考', intensity: 4 }],
+            },
           }],
         },
         {
@@ -346,6 +449,10 @@ export const GAME_CONTENT: GameContent = {
             text: '结果不算耀眼，但你没有在抵达之前耗尽自己。',
             effects: { intellect: 1, charm: 1 },
             addTags: ['finished_exam', 'kept_balance'],
+            world: {
+              setFacts: { schooling: 'exam' },
+              threads: [{ id: 'school_life', domain: 'learning', label: '备考', intensity: 2 }],
+            },
           }],
         },
         {
@@ -385,6 +492,10 @@ export const GAME_CONTENT: GameContent = {
       once: true,
       effects: { wealth: 2, health: -1 },
       addTags: ['worked_early'],
+      domains: ['career'],
+      world: {
+        threads: [{ id: 'career_life', domain: 'career', label: '谋生', intensity: 2 }],
+      },
     },
     {
       id: 'small_stage',
@@ -422,6 +533,11 @@ export const GAME_CONTENT: GameContent = {
             text: '你很快站稳脚跟，也开始成为别人需要时能找到的人。',
             effects: { wealth: 1, charm: 1 },
             addTags: ['stayed_hometown'],
+            world: {
+              setFacts: { residence: 'hometown' },
+              relations: [{ id: 'parents', closenessDelta: 1 }],
+              threads: [{ id: 'family_origin', domain: 'family', label: '原生家庭', intensityDelta: 1 }],
+            },
             schedule: [{ eventId: 'local_roots_echo', afterYears: 5, windowYears: 4 }],
           }],
         },
@@ -435,6 +551,10 @@ export const GAME_CONTENT: GameContent = {
             text: '最初的日子并不容易，但你学会了独自处理生活。',
             effects: { intellect: 2, wealth: -2 },
             addTags: ['left_hometown'],
+            world: {
+              setFacts: { residence: 'city' },
+              threads: [{ id: 'city_life', domain: 'travel', label: '城市生活', intensity: 3 }],
+            },
             schedule: [{ eventId: 'city_crossroads', afterYears: 4, windowYears: 4 }],
           }],
         },
@@ -449,6 +569,10 @@ export const GAME_CONTENT: GameContent = {
             text: '你没有立刻找到归处，却发现世界远比地图上的名字具体。',
             effects: { intellect: 1, charm: 2, wealth: -1 },
             addTags: ['left_hometown', 'young_traveler'],
+            world: {
+              setFacts: { residence: 'traveling' },
+              threads: [{ id: 'open_road', domain: 'travel', label: '远行', intensity: 3 }],
+            },
           }],
         },
       ],
@@ -496,6 +620,11 @@ export const GAME_CONTENT: GameContent = {
             text: '工作不算体面，但你的名字第一次印在了工牌上。',
             effects: { wealth: 2, health: -1 },
             addTags: ['has_career'],
+            world: {
+              setFacts: { occupation: 'employed' },
+              marks: [{ id: 'job', intensity: 2 }],
+              threads: [{ id: 'career_life', domain: 'career', label: '谋生', intensity: 4 }],
+            },
           }],
         },
         {
@@ -508,13 +637,21 @@ export const GAME_CONTENT: GameContent = {
             text: '重复的练习很慢，却让你拥有了一件不会轻易失去的东西。',
             effects: { intellect: 2, wealth: 1 },
             addTags: ['has_craft'],
+            world: {
+              setFacts: { occupation: 'craft' },
+              marks: [{ id: 'tools', intensity: 2 }],
+              threads: [
+                { id: 'craft_life', domain: 'craft', label: '手艺', intensity: 4 },
+                { id: 'career_life', domain: 'career', label: '谋生', intensity: 2 },
+              ],
+            },
           }],
         },
         {
           id: 'build_own_thing',
           text: '把时间押在自己的小计划上',
           preview: '风险较高，成功时打开创造路线',
-          condition: { minStats: { intellect: 8 }, requiredCapabilityTags: ['bold_path'] },
+          condition: { requiredMarks: { clarity: 2 }, requiredCapabilityTags: ['bold_path'] },
           outcomes: [
             {
               id: 'early_prototype',
@@ -522,6 +659,10 @@ export const GAME_CONTENT: GameContent = {
               text: '成果还粗糙，却已经有人愿意认真听你介绍。',
               effects: { intellect: 2, wealth: -1 },
               addTags: ['built_something'],
+              world: {
+                setFacts: { occupation: 'venture' },
+                threads: [{ id: 'career_life', domain: 'career', label: '自己的事', intensity: 4 }],
+              },
               schedule: [{ eventId: 'side_project', afterYears: 2, windowYears: 5 }],
             },
             {
@@ -544,6 +685,10 @@ export const GAME_CONTENT: GameContent = {
             text: '陌生的工具落在手里，却像已经练习过许多年。',
             effects: { intellect: 2, wealth: 2 },
             addTags: ['has_craft', 'remembered_craft'],
+            world: {
+              setFacts: { occupation: 'craft' },
+              threads: [{ id: 'craft_life', domain: 'craft', label: '手艺', intensity: 4 }],
+            },
           }],
         },
       ],
@@ -557,6 +702,11 @@ export const GAME_CONTENT: GameContent = {
       once: true,
       effects: { intellect: 2, wealth: 1 },
       addTags: ['has_craft'],
+      domains: ['craft', 'career'],
+      world: {
+        setFacts: { occupation: 'craft' },
+        threads: [{ id: 'craft_life', domain: 'craft', label: '手艺', intensity: 3 }],
+      },
     },
     {
       id: 'first_love',
@@ -577,6 +727,11 @@ export const GAME_CONTENT: GameContent = {
             text: '不论以后是否同行，这份坦率都改变了你理解亲密的方式。',
             effects: { charm: 2 },
             addTags: ['has_loved'],
+            world: {
+              setFacts: { partnership: 'loved' },
+              relations: [{ id: 'partner', kind: 'partner', label: '恋人', closeness: 6 }],
+              threads: [{ id: 'partnership', domain: 'relationship', label: '亲密', intensity: 3 }],
+            },
             schedule: [{ eventId: 'make_a_home', afterYears: 5, windowYears: 4 }],
           }],
         },
@@ -590,6 +745,10 @@ export const GAME_CONTENT: GameContent = {
             text: '热烈慢慢变成了长久的理解，你们仍会在重要时刻想起彼此。',
             effects: { charm: 1, intellect: 1 },
             addTags: ['lifelong_friend'],
+            world: {
+              relations: [{ id: 'friend', kind: 'friend', label: '故人', closenessDelta: 2 }],
+              threads: [{ id: 'friendship', domain: 'relationship', label: '友情', intensity: 3 }],
+            },
           }],
         },
         {
@@ -602,6 +761,9 @@ export const GAME_CONTENT: GameContent = {
             text: '生活没有因此失序，只是有些话从此留在了那个年纪。',
             effects: { intellect: 1 },
             addTags: ['guarded_heart'],
+            world: {
+              setFacts: { partnership: 'guarded' },
+            },
           }],
         },
       ],
@@ -614,7 +776,7 @@ export const GAME_CONTENT: GameContent = {
       weight: 2,
       once: true,
       effects: { intellect: 1, wealth: 3, health: -1 },
-      condition: { minStats: { intellect: 8 } },
+      condition: { requiredMarks: { clarity: 2 } },
       addTags: ['built_something'],
     },
     {
@@ -656,6 +818,10 @@ export const GAME_CONTENT: GameContent = {
             text: '过程比预计更久，但过去的经验最终帮你重新站稳。',
             effects: { wealth: -2, intellect: 1 },
             addTags: ['career_break', 'has_career'],
+            world: {
+              setFacts: { occupation: 'searching' },
+              threads: [{ id: 'career_life', domain: 'career', label: '谋生', intensity: 5 }],
+            },
             schedule: [{ eventId: 'career_turn', afterYears: 8, windowYears: 10 }],
           }],
         },
@@ -669,6 +835,13 @@ export const GAME_CONTENT: GameContent = {
             text: '白天奔波，晚上学习，你慢慢拥有了另一套可以出发的工具。',
             effects: { intellect: 3, health: -1, wealth: -2 },
             addTags: ['career_break', 'kept_learning'],
+            world: {
+              setFacts: { occupation: 'searching', schooling: 'continued' },
+              threads: [
+                { id: 'career_life', domain: 'career', label: '谋生', intensity: 3 },
+                { id: 'learning_mind', domain: 'learning', label: '再学一次', intensity: 3 },
+              ],
+            },
             schedule: [{ eventId: 'career_turn', afterYears: 8, windowYears: 10 }],
           }],
         },
@@ -676,7 +849,7 @@ export const GAME_CONTENT: GameContent = {
           id: 'try_own_business',
           text: '把积蓄押在自己的事情上',
           preview: '高风险，可能获得新的事业路线',
-          condition: { minStats: { wealth: 9 } },
+          condition: { requiredMarks: { means: 2 } },
           outcomes: [
             {
               id: 'venture_survived',
@@ -684,6 +857,10 @@ export const GAME_CONTENT: GameContent = {
               text: '最难的几个月过去后，事情终于开始自己向前滚动。',
               effects: { wealth: 3, intellect: 2, health: -1 },
               addTags: ['career_break', 'built_something', 'second_career'],
+              world: {
+                setFacts: { occupation: 'venture' },
+                threads: [{ id: 'career_life', domain: 'career', label: '自己的事', intensity: 5 }],
+              },
             },
             {
               id: 'venture_failed',
@@ -716,6 +893,11 @@ export const GAME_CONTENT: GameContent = {
             text: '从此许多计划里多了一个“我们”，也多了真实的责任。',
             effects: { charm: 3, wealth: -2 },
             addTags: ['made_a_home'],
+            world: {
+              setFacts: { partnership: 'home' },
+              relations: [{ id: 'partner', kind: 'partner', label: '伴侣', closeness: 7 }],
+              threads: [{ id: 'family_own', domain: 'family', label: '自己的家', intensity: 4 }],
+            },
             schedule: [{ eventId: 'new_parent', afterYears: 2, windowYears: 4 }],
           }],
         },
@@ -729,6 +911,10 @@ export const GAME_CONTENT: GameContent = {
             text: '你们没有照着常见答案生活，却找到了彼此都舒服的距离。',
             effects: { intellect: 1, wealth: 1 },
             addTags: ['independent_partnership'],
+            world: {
+              setFacts: { partnership: 'independent' },
+              relations: [{ id: 'partner', kind: 'partner', label: '伴侣', closeness: 5 }],
+            },
           }],
         },
         {
@@ -741,6 +927,11 @@ export const GAME_CONTENT: GameContent = {
             text: '告别仍然难过，但你们没有把曾经的真心变成怨恨。',
             effects: { charm: 1, health: -1 },
             addTags: ['parted_kindly'],
+            world: {
+              setFacts: { partnership: 'parted' },
+              relations: [{ id: 'partner', remove: true }],
+              threads: [{ id: 'partnership', resolve: true }],
+            },
           }],
         },
       ],
@@ -765,6 +956,14 @@ export const GAME_CONTENT: GameContent = {
             text: '收入增长慢了下来，但许多第一次你都没有错过。',
             effects: { charm: 3, wealth: -2 },
             addTags: ['raised_child', 'present_parent'],
+            world: {
+              setFacts: { parenting: 'child' },
+              relations: [{ id: 'child', kind: 'child', label: '孩子', closeness: 7 }],
+              threads: [
+                { id: 'family_own', domain: 'family', label: '自己的家', intensity: 5 },
+                { id: 'career_life', intensityDelta: -1 },
+              ],
+            },
           }],
         },
         {
@@ -777,6 +976,13 @@ export const GAME_CONTENT: GameContent = {
             text: '你们没有谁独自扛住一切，疲惫中仍保留了彼此。',
             effects: { charm: 2, health: -1, wealth: -1 },
             addTags: ['raised_child', 'shared_parenting'],
+            world: {
+              setFacts: { parenting: 'child' },
+              relations: [
+                { id: 'child', kind: 'child', label: '孩子', closeness: 6 },
+                { id: 'partner', strainDelta: -1, closenessDelta: 1 },
+              ],
+            },
           }],
         },
         {
@@ -790,6 +996,13 @@ export const GAME_CONTENT: GameContent = {
             text: '有人替你接住最疲惫的时刻，你也学会了不把求助当成失败。',
             effects: { charm: 3, wealth: -1 },
             addTags: ['raised_child', 'family_supported'],
+            world: {
+              setFacts: { parenting: 'child' },
+              relations: [
+                { id: 'child', kind: 'child', label: '孩子', closeness: 6 },
+                { id: 'parents', closenessDelta: 1 },
+              ],
+            },
           }],
         },
       ],
@@ -879,6 +1092,10 @@ export const GAME_CONTENT: GameContent = {
             text: '改变很慢，但几个月后，身体终于给出了回应。',
             effects: { health: 3, wealth: -1 },
             addTags: ['health_warning', 'changed_habits'],
+            world: {
+              setFacts: { health: 'recovering' },
+              threads: [{ id: 'health_watch', domain: 'health', label: '身体', intensity: 2 }],
+            },
           }],
         },
         {
@@ -891,19 +1108,27 @@ export const GAME_CONTENT: GameContent = {
             text: '进度没有停下，身体却把每一次透支都记了下来。',
             effects: { wealth: 2, health: -3 },
             addTags: ['health_warning', 'ignored_warning'],
+            world: {
+              setFacts: { health: 'neglected' },
+              threads: [{ id: 'health_watch', domain: 'health', label: '身体', intensity: 5 }],
+            },
           }],
         },
         {
           id: 'seek_specialist',
           text: '花积蓄寻求更系统的帮助',
           preview: '消耗较多家底，大幅恢复体魄',
-          condition: { minStats: { wealth: 10 } },
+          condition: { requiredMarks: { means: 2 } },
           outcomes: [{
             id: 'treated_early',
             weight: 1,
             text: '问题被更早看见，也终于得到了一套真正可执行的方案。',
             effects: { health: 4, wealth: -3 },
             addTags: ['health_warning', 'treated_early'],
+            world: {
+              setFacts: { health: 'treated' },
+              threads: [{ id: 'health_watch', domain: 'health', label: '身体', intensity: 1 }],
+            },
           }],
         },
       ],
@@ -917,6 +1142,10 @@ export const GAME_CONTENT: GameContent = {
       once: true,
       effects: { charm: 2, health: 1 },
       condition: { requiredTags: ['lifelong_friend'] },
+      domains: ['relationship'],
+      world: {
+        relations: [{ id: 'friend', kind: 'friend', label: '故人', closenessDelta: 2, strainDelta: -1 }],
+      },
     },
     {
       id: 'career_turn',
@@ -925,7 +1154,7 @@ export const GAME_CONTENT: GameContent = {
       text: '熟悉的岗位已经走到边缘，你开始衡量余下岁月还能怎样使用。',
       weight: 2,
       once: true,
-      condition: { minStats: { intellect: 10 } },
+      condition: { requiredMarks: { clarity: 2 } },
       themes: ['career', 'learning', 'legacy'],
       choices: [
         {
@@ -977,6 +1206,11 @@ export const GAME_CONTENT: GameContent = {
       once: true,
       effects: { charm: 2, health: -1, wealth: -1 },
       addTags: ['cared_for_family'],
+      domains: ['family', 'health'],
+      world: {
+        relations: [{ id: 'parents', closenessDelta: 2, strainDelta: 1 }],
+        threads: [{ id: 'family_origin', domain: 'family', label: '原生家庭', intensity: 4 }],
+      },
     },
     {
       id: 'middle_year',
@@ -1017,6 +1251,10 @@ export const GAME_CONTENT: GameContent = {
             text: '没有闹钟的清晨起初陌生，后来渐渐有了自己的秩序。',
             effects: { health: 2, wealth: -1 },
             addTags: ['retired'],
+            world: {
+              setFacts: { occupation: 'retired' },
+              threads: [{ id: 'career_life', resolve: true }],
+            },
           }],
         },
         {
@@ -1029,6 +1267,10 @@ export const GAME_CONTENT: GameContent = {
             text: '你没有一下离开多年节奏，而是慢慢学会退到生活中央。',
             effects: { wealth: 1, health: -1 },
             addTags: ['semi_retired'],
+            world: {
+              setFacts: { occupation: 'semi_retired' },
+              threads: [{ id: 'career_life', domain: 'career', label: '谋生', intensity: 2 }],
+            },
           }],
         },
         {
@@ -1042,6 +1284,14 @@ export const GAME_CONTENT: GameContent = {
             text: '你收好旧物，却把最重要的诀窍留在了别人的手里。',
             effects: { charm: 2, intellect: 1 },
             addTags: ['retired', 'passed_on_craft'],
+            world: {
+              setFacts: { occupation: 'retired' },
+              relations: [{ id: 'apprentice', kind: 'mentor', label: '后来的人', closeness: 4 }],
+              threads: [
+                { id: 'career_life', resolve: true },
+                { id: 'craft_life', domain: 'craft', label: '手艺', intensity: 3 },
+              ],
+            },
           }],
         },
       ],
@@ -1112,7 +1362,7 @@ export const GAME_CONTENT: GameContent = {
       text: '旧照片铺满桌面，你开始思考这些故事应该留下些什么。',
       weight: 2,
       once: true,
-      condition: { minStats: { intellect: 12 } },
+      condition: { requiredMarks: { clarity: 3 } },
       themes: ['legacy', 'learning', 'family'],
       choices: [
         {
@@ -1200,6 +1450,389 @@ export const GAME_CONTENT: GameContent = {
       addTags: ['reached_century'],
       terminalReason: '你在百岁之后安静地走完了这一生。',
     },
+    {
+      id: 'work_home_clash',
+      minAge: 28,
+      maxAge: 50,
+      text: '家里有人需要你留下的晚上，工作也卡在最后期限。两条线第一次真正互相挡住。',
+      weight: 2,
+      once: true,
+      domains: ['career', 'family'],
+      themes: ['career', 'family'],
+      condition: {
+        requiredTags: ['made_a_home'],
+        anyTags: ['has_career', 'has_craft', 'built_something', 'second_career'],
+      },
+      couplings: [{
+        minPressures: { career: 4, family: 4 },
+        weightBonus: 8,
+      }],
+      choices: [
+        {
+          id: 'keep_deadline',
+          text: '先把眼前的事做完',
+          preview: '事业继续向前，家里会记住这次缺席',
+          outcomes: [{
+            id: 'deadline_kept',
+            weight: 1,
+            text: '任务完成了，可回家时灯已经关了。你开始明白有些错过补不回来。',
+            effects: { wealth: 2, charm: -1, health: -1 },
+            addTags: ['work_over_home'],
+            world: {
+              relations: [
+                { id: 'partner', strainDelta: 2, closenessDelta: -1 },
+                { id: 'child', strainDelta: 1 },
+              ],
+              threads: [{ id: 'career_life', domain: 'career', label: '谋生', intensityDelta: 1 }],
+            },
+          }],
+        },
+        {
+          id: 'go_home_now',
+          text: '放下工作回家',
+          preview: '家庭更近，事业会松一截',
+          outcomes: [{
+            id: 'chose_the_door',
+            weight: 1,
+            text: '你赶到的时候，事情还没结束。有人因为你出现而放松下来。',
+            effects: { charm: 2, wealth: -1 },
+            addTags: ['home_over_work'],
+            world: {
+              relations: [
+                { id: 'partner', closenessDelta: 1, strainDelta: -1 },
+                { id: 'child', closenessDelta: 1 },
+              ],
+              threads: [{ id: 'career_life', intensityDelta: -1 }],
+            },
+          }],
+        },
+        {
+          id: 'split_the_night',
+          text: '把夜晚劈成两半硬扛',
+          preview: '两边都顾一点，身体先付钱',
+          outcomes: [{
+            id: 'split_until_dawn',
+            weight: 1,
+            text: '你谁也没彻底辜负，只把自己耗到了天亮。',
+            effects: { charm: 1, wealth: 1, health: -2 },
+            addTags: ['split_too_thin'],
+            world: {
+              setFacts: { health: 'warning' },
+              threads: [
+                { id: 'family_own', intensityDelta: 1 },
+                { id: 'career_life', intensityDelta: 1 },
+              ],
+            },
+          }],
+        },
+      ],
+    },
+    {
+      id: 'city_loneliness',
+      minAge: 22,
+      maxAge: 40,
+      text: '城市很大，可这个周末没有人约你。你第一次看清：远行不只换了街道，也换了能说话的人。',
+      weight: 2,
+      once: true,
+      domains: ['travel', 'relationship'],
+      themes: ['travel', 'relationship'],
+      condition: {
+        requiredFacts: { residence: 'city' },
+        forbiddenTags: ['made_a_home'],
+      },
+      couplings: [{
+        allFacts: { residence: 'city' },
+        minPressures: { relationship: 3 },
+        weightBonus: 6,
+      }],
+      choices: [
+        {
+          id: 'join_strangers',
+          text: '硬着头皮去认识新的人',
+          preview: '人缘增加，城市开始有落点',
+          outcomes: [{
+            id: 'city_friends',
+            weight: 1,
+            text: '谈话起初客套，后来有人记住了你点的那杯东西。',
+            effects: { charm: 2, wealth: -1 },
+            addTags: ['city_community'],
+            world: {
+              relations: [{ id: 'friend', kind: 'friend', label: '新朋友', closeness: 4 }],
+              threads: [{ id: 'city_life', domain: 'travel', label: '城市生活', intensity: 2 }],
+            },
+          }],
+        },
+        {
+          id: 'call_home',
+          text: '给故乡的人打电话',
+          preview: '家人更近，自己仍在别处',
+          outcomes: [{
+            id: 'voice_from_home',
+            weight: 1,
+            text: '听筒里的嘈杂让你同时安心，也更想家。',
+            effects: { charm: 1, intellect: 1 },
+            addTags: ['called_home'],
+            world: {
+              relations: [{ id: 'parents', closenessDelta: 1 }],
+            },
+          }],
+        },
+        {
+          id: 'keep_to_self',
+          text: '把独处当成新的能力',
+          preview: '心智增加，人情线变淡',
+          outcomes: [{
+            id: 'learned_solitude',
+            weight: 1,
+            text: '你没有急着填满晚上，却也把一些本来可能靠近的人放过去了。',
+            effects: { intellect: 2, charm: -1 },
+            addTags: ['chose_solitude'],
+            world: {
+              threads: [{ id: 'city_life', domain: 'travel', label: '城市生活', intensity: 3 }],
+            },
+          }],
+        },
+      ],
+    },
+    {
+      id: 'body_keeps_score',
+      minAge: 35,
+      maxAge: 62,
+      text: '事业还在向前，身体却在同一个星期里连续示警。你没法再假装这两件事互不相干。',
+      weight: 2,
+      once: true,
+      domains: ['career', 'health'],
+      themes: ['career', 'health'],
+      condition: {
+        anyTags: ['has_career', 'has_craft', 'built_something', 'second_career'],
+        anyFacts: { health: ['warning', 'neglected', 'treated'] },
+      },
+      couplings: [{
+        minPressures: { career: 4, health: 4 },
+        weightBonus: 8,
+      }],
+      choices: [
+        {
+          id: 'cut_workload',
+          text: '把工作往下卸一截',
+          preview: '身体回升，家底放缓',
+          outcomes: [{
+            id: 'slowed_the_pace',
+            weight: 1,
+            text: '你少接了一截活。几个月后，睡眠比任何表扬都更像奖赏。',
+            effects: { health: 3, wealth: -2 },
+            addTags: ['chose_body'],
+            world: {
+              setFacts: { health: 'recovering' },
+              threads: [
+                { id: 'career_life', intensityDelta: -2 },
+                { id: 'health_watch', domain: 'health', label: '身体', intensity: 2 },
+              ],
+            },
+          }],
+        },
+        {
+          id: 'push_through_pain',
+          text: '先撑过这阵再谈休息',
+          preview: '事业继续，身体记下这笔账',
+          outcomes: [{
+            id: 'pain_deferred',
+            weight: 1,
+            text: '事情是做成了。可你上下楼梯时，已经能听见身体在倒数。',
+            effects: { wealth: 2, health: -3 },
+            addTags: ['ignored_warning'],
+            world: {
+              setFacts: { health: 'neglected' },
+              threads: [{ id: 'health_watch', domain: 'health', label: '身体', intensity: 6 }],
+            },
+          }],
+        },
+      ],
+    },
+    {
+      id: 'friend_needs_you',
+      minAge: 24,
+      maxAge: 58,
+      text: '多年的朋友忽然开口求助。你自己的日子也不宽裕，可这条线如果此刻松开，以后很难再接上。',
+      weight: 2,
+      once: true,
+      domains: ['relationship', 'career'],
+      themes: ['relationship', 'career'],
+      condition: { requiredRelations: ['friend'] },
+      couplings: [{
+        allRelations: ['friend'],
+        minPressures: { relationship: 4 },
+        weightBonus: 6,
+      }],
+      choices: [
+        {
+          id: 'help_the_friend',
+          text: '把能挪的都挪过去',
+          preview: '友情加深，家底减少',
+          outcomes: [{
+            id: 'friend_held',
+            weight: 1,
+            text: '你帮得并不轻松，但对方后来把这件事记得比你更清楚。',
+            effects: { charm: 3, wealth: -2 },
+            addTags: ['kept_a_friend'],
+            world: {
+              relations: [{ id: 'friend', closenessDelta: 2, strainDelta: -1 }],
+            },
+          }],
+        },
+        {
+          id: 'help_within_limit',
+          text: '帮一点，也说明自己的限度',
+          preview: '关系仍在，双方都更明白边界',
+          outcomes: [{
+            id: 'honest_limit',
+            weight: 1,
+            text: '话有点难说，可说完之后，你们都还站在原地。',
+            effects: { charm: 1, intellect: 1, wealth: -1 },
+            addTags: ['honest_friendship'],
+            world: {
+              relations: [{ id: 'friend', closenessDelta: 1 }],
+            },
+          }],
+        },
+        {
+          id: 'cannot_help_now',
+          text: '承认这次帮不上',
+          preview: '保住当下生活，友情会冷一截',
+          outcomes: [{
+            id: 'friend_let_go',
+            weight: 1,
+            text: '对方没有骂你。只是此后问候变得更短，间隔变得更长。',
+            effects: { intellect: 1, charm: -2 },
+            addTags: ['lost_a_chance'],
+            world: {
+              relations: [{ id: 'friend', closenessDelta: -2, strainDelta: 1 }],
+            },
+          }],
+        },
+      ],
+    },
+    {
+      id: 'parents_far_away',
+      minAge: 30,
+      maxAge: 58,
+      text: '故乡的电话打来时，你正在另一座城市赶下一件事。父母的需要和工作的节奏叠在了同一周。',
+      weight: 2,
+      once: true,
+      domains: ['family', 'travel', 'career'],
+      themes: ['family', 'travel'],
+      condition: {
+        requiredFacts: { residence: 'city' },
+        requiredRelations: ['parents'],
+      },
+      couplings: [{
+        allFacts: { residence: 'city' },
+        allRelations: ['parents'],
+        minPressures: { family: 4 },
+        weightBonus: 7,
+      }],
+      choices: [
+        {
+          id: 'go_back_often',
+          text: '把往返当成新的日常',
+          preview: '家人更近，体魄和家底都要付账',
+          outcomes: [{
+            id: 'commuting_home',
+            weight: 1,
+            text: '车站比办公室更熟悉了。你少了一些升迁，多看见了父母还没说出口的老。',
+            effects: { charm: 2, health: -1, wealth: -2 },
+            addTags: ['cared_for_family'],
+            world: {
+              relations: [{ id: 'parents', closenessDelta: 2 }],
+              threads: [{ id: 'family_origin', domain: 'family', label: '原生家庭', intensity: 4 }],
+            },
+          }],
+        },
+        {
+          id: 'send_money_home',
+          text: '用积蓄把照顾托付给当地',
+          preview: '花钱换安心，自己仍隔着距离',
+          outcomes: [{
+            id: 'care_from_afar',
+            weight: 1,
+            text: '账单按时寄出，电话里的声音稳了一些。你知道这不是陪伴，只是你此刻能给的。',
+            effects: { wealth: -3, charm: 1 },
+            addTags: ['supported_from_afar'],
+            world: {
+              relations: [{ id: 'parents', strainDelta: -1 }],
+            },
+          }],
+        },
+        {
+          id: 'delay_the_visit',
+          text: '等手头这阵过去再回去',
+          preview: '事业不被打断，亲情会记账',
+          outcomes: [{
+            id: 'later_and_later',
+            weight: 1,
+            text: '后来你回去了。只是有些话已经没有原来那个听的人了。',
+            effects: { wealth: 1, charm: -2 },
+            addTags: ['delayed_home'],
+            world: {
+              relations: [{ id: 'parents', closenessDelta: -2, strainDelta: 2 }],
+            },
+          }],
+        },
+      ],
+    },
+    {
+      id: 'restless_hometown',
+      minAge: 28,
+      maxAge: 46,
+      text: '你把根留在熟悉的街上，可偶尔仍会梦见没去成的那列夜车。安稳和未走的路开始互相提问。',
+      weight: 2,
+      once: true,
+      domains: ['family', 'travel'],
+      themes: ['family', 'travel'],
+      condition: {
+        requiredTags: ['stayed_hometown'],
+        forbiddenTags: ['left_hometown'],
+      },
+      couplings: [{
+        allFacts: { residence: 'hometown' },
+        minPressures: { family: 3, travel: 2 },
+        weightBonus: 5,
+      }],
+      choices: [
+        {
+          id: 'leave_late',
+          text: '现在出发也不算晚',
+          preview: '换一座城，故乡的关系会拉开',
+          outcomes: [{
+            id: 'late_departure',
+            weight: 1,
+            text: '行李比年轻时更重，决心却更清楚。你走的时候，有人来送。',
+            effects: { intellect: 2, charm: 1, wealth: -2 },
+            addTags: ['left_hometown', 'late_traveler'],
+            world: {
+              setFacts: { residence: 'city' },
+              threads: [{ id: 'city_life', domain: 'travel', label: '城市生活', intensity: 3 }],
+            },
+          }],
+        },
+        {
+          id: 'stay_and_deepen',
+          text: '把没走的路活成选择而不是遗憾',
+          preview: '本地关系更深，心安下来',
+          outcomes: [{
+            id: 'roots_chosen',
+            weight: 1,
+            text: '你停止把留下写成失败。这条街因为你认真对待，也开始认真对待你。',
+            effects: { charm: 2, health: 1 },
+            addTags: ['local_anchor'],
+            world: {
+              relations: [{ id: 'parents', closenessDelta: 1 }],
+              threads: [{ id: 'family_origin', domain: 'family', label: '原生家庭', intensity: 3 }],
+            },
+          }],
+        },
+      ],
+    },
   ],
 
   endings: [
@@ -1232,7 +1865,7 @@ export const GAME_CONTENT: GameContent = {
       description: '世界越大，你越清楚自己不知道什么，于是一直没有停止学习。',
       priority: 80,
       minAge: 65,
-      minStats: { intellect: 18 },
+      requiredMarks: { clarity: 3 },
     },
     {
       id: 'full_house',
@@ -1240,7 +1873,7 @@ export const GAME_CONTENT: GameContent = {
       description: '你留下的不是耀眼履历，而是一桌总有人赴约的饭。',
       priority: 80,
       minAge: 65,
-      minStats: { charm: 18 },
+      requiredMarks: { presence: 3 },
       requiredTags: ['made_a_home'],
     },
     {
@@ -1249,7 +1882,7 @@ export const GAME_CONTENT: GameContent = {
       description: '多年的经营换来选择生活方式的自由，你终于不再被账单催促。',
       priority: 75,
       minAge: 65,
-      minStats: { wealth: 18 },
+      requiredMarks: { means: 3 },
     },
     {
       id: 'long_road',

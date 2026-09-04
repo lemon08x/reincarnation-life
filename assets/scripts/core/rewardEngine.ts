@@ -48,7 +48,7 @@ export function prepareSettlement(
     throw new Error('An ended life must have an ending before settlement.');
   }
 
-  const score = calculateLifeScore(run);
+  const score = calculateLifeScore(run, content);
   const baseExp = 10;
   const performanceExp = Math.floor(score / 10);
   const isFirstDiscovery = !profile.discoveredEndingIds.includes(run.endingId);

@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "d5e93a29-8c61-4f40-b13a-4e907c13f268",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/content/scenarioContent.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}

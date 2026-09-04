@@ -2,10 +2,14 @@ import { GAME_CONTENT } from '../content/gameContent';
 import { assertValidGameContent } from '../core/contentValidation';
 import {
   advanceToNextMoment,
+  chooseLifePath,
   chooseStageFocus,
+  continueScenario,
   drawTalentDraft,
   rerollPendingDecision,
   resolveEventChoice,
+  resolveScenarioAction,
+  startHistoryLife,
   startLife,
 } from '../core/lifeEngine';
 import {
@@ -15,7 +19,6 @@ import {
   LifeRun,
   ReincarnatorProfile,
   SAVE_VERSION,
-  Stats,
   TalentDraft,
 } from '../core/model';
 import { createInitialProfile, getLegacySlotCount } from '../core/progression';
@@ -114,7 +117,6 @@ export class GameService {
   public startNewLife(
     draft: TalentDraft,
     selectedTalentIds: string[],
-    allocation: Stats,
   ): LifeRun {
     this.assertCanConfigureNextLife();
 
@@ -129,7 +131,6 @@ export class GameService {
       this.saveData.profile,
       draft,
       selectedTalentIds,
-      allocation,
       runId,
       this.content,
     );
@@ -143,6 +144,54 @@ export class GameService {
     };
     this.persist();
     return run;
+  }
+
+  public startHistoryRun(figureId: string): LifeRun {
+    this.assertCanConfigureNextLife();
+    const identitySeed = this.seedFactory();
+    const runId = [
+      'history',
+      identitySeed.toString(36),
+      figureId,
+      this.saveData.profile.settledRunIds.length.toString(36),
+    ].join('-');
+    const run = startHistoryLife(this.saveData.profile, figureId, runId, this.content);
+    this.saveData = {
+      version: SAVE_VERSION,
+      profile: {
+        ...this.saveData.profile,
+        pendingBoonIds: [],
+      },
+      currentRun: run,
+    };
+    this.persist();
+    return run;
+  }
+
+  public chooseCurrentPath(scenarioId: string): LifeRun {
+    return this.updateActiveRun((run) => chooseLifePath(run, scenarioId, this.content));
+  }
+
+  public resolveCurrentScenarioAction(actionId: string): LifeRun {
+    const currentRun = this.getRequiredActiveRun();
+    const resolved = resolveScenarioAction(currentRun, actionId, this.content);
+    if (resolved.status === 'ended') {
+      this.prepareCurrentSettlement(resolved);
+    } else {
+      this.setCurrentRun(resolved);
+    }
+    return this.saveData.currentRun as LifeRun;
+  }
+
+  public continueCurrentScenario(): LifeRun {
+    const currentRun = this.getRequiredActiveRun();
+    const next = continueScenario(currentRun, this.content);
+    if (next.status === 'ended') {
+      this.prepareCurrentSettlement(next);
+    } else {
+      this.setCurrentRun(next);
+    }
+    return this.saveData.currentRun as LifeRun;
   }
 
   public chooseCurrentStageFocus(focusId: string): LifeRun {

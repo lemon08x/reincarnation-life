@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "e8b4a7c1-2d3f-4a91-8c6e-5b7f0d9e1a24",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/core/lifeWorld.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}

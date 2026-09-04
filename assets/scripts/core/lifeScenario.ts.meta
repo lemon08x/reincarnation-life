@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "f7015c4b-0e83-4162-d35c-611b9e35a480",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/core/lifeScenario.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}
