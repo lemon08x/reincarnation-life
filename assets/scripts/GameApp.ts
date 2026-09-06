@@ -1,67 +1,43 @@
 import { _decorator, Component, ResolutionPolicy, view } from 'cc';
 import { GameService } from './app/gameService';
 import {
-  presentChoices,
-  presentHistoryFigures,
-  presentHistoryRegions,
+  presentCarry,
+  presentCausality,
+  presentEncounter,
+  presentEnding,
   presentHome,
-  presentLoadout,
-  presentPaths,
-  presentReady,
-  presentResult,
-  presentRewards,
-  presentScenario,
-  presentSummary,
-  presentTalents,
+  presentRecall,
   routePlayPage,
 } from './app/presentation/presenters';
-import { HistoryRegionId, LifeMark, LifeRun, TalentDraft } from './core/model';
+import { RecallStance } from './core/model';
 import { CocosSaveStore } from './platform/cocosSaveStore';
 import { UiKit } from './ui/kit';
 import {
-  renderChoices,
+  renderCarry,
+  renderCausality,
+  renderEncounter,
+  renderEnding,
   renderError,
-  renderHistoryFigures,
-  renderHistoryRegions,
   renderHome,
-  renderLoadout,
   renderOverlay,
-  renderPaths,
-  renderReady,
-  renderResult,
-  renderRewards,
-  renderScenario,
-  renderSummary,
-  renderTalents,
+  renderRecall,
 } from './ui/pages';
 import { DESIGN_HEIGHT, DESIGN_WIDTH } from './ui/theme';
 
 const { ccclass } = _decorator;
 
-interface RunSnapshot {
-  resources?: Record<string, number>;
-  marks: LifeMark[];
-}
-
 @ccclass('GameApp')
 export class GameApp extends Component {
   private service!: GameService;
   private kit!: UiKit;
-  private talentDraft: TalentDraft | null = null;
-  private selectedTalentIds: string[] = [];
-  private autoPlaying = false;
-  private advancing = false;
   private submitting = false;
-  private selectedLegacyId: string | null = null;
   private selectedChoiceId: string | null = null;
-  private selectedRewardId: string | null = null;
-  private foresightOpen = false;
-  private browseEventId = '';
-  private historyRegion: HistoryRegionId | null = null;
-  private selectedFigureId: string | null = null;
-  private lastScenarioKey = '';
-  private snapshot: RunSnapshot | null = null;
+  private selectedRecall: RecallStance | null = null;
+  private selectedCarryIds: string[] = [];
+  private browseId: string | null = null;
+  private returnPage: 'encounter' | 'recall' | 'ending' | 'home' = 'home';
   private overlay: { title: string; body: string } | null = null;
+  private lastEncounterKey = '';
 
   public start(): void {
     view.setDesignResolutionSize(DESIGN_WIDTH, DESIGN_HEIGHT, ResolutionPolicy.SHOW_ALL);
@@ -71,350 +47,213 @@ export class GameApp extends Component {
   }
 
   public onDestroy(): void {
-    this.stopAutoPlay();
     this.kit?.clearPage();
   }
 
   private renderHome(): void {
-    this.stopAutoPlay();
     this.overlay = null;
-    const viewModel = presentHome(this.service.getProfile(), this.service.getCurrentRun(), this.service.getContent());
+    const viewModel = presentHome(this.service.getProfile(), this.service.getCurrentRun());
     renderHome(this.kit, viewModel, {
       goHome: () => this.renderHome(),
       expand: (_key, title, body) => this.showOverlay(title, body),
       continueLife: () => this.renderLife(),
-      claimReward: () => this.renderResult(),
-      freeMode: () => this.openTalentSelection(),
-      historyMode: () => this.renderHistoryRegions(),
-      loadout: () => {
-        this.selectedLegacyId = null;
-        this.renderLegacyLoadout();
-      },
-      lastResult: () => this.renderResult(),
+      archiveLife: () => this.runCommand(() => {
+        this.service.archiveCurrentLife();
+        this.renderEnding();
+      }),
+      startLife: () => this.openCarryOrStart(),
+      lastResult: () => this.renderEnding(),
     });
   }
 
-  private openTalentSelection(): void {
-    this.runCommand(() => {
-      this.talentDraft = this.service.createTalentDraft();
-      this.selectedTalentIds = [];
-      this.renderTalentSelection();
-    });
-  }
-
-  private renderTalentSelection(): void {
-    const draft = this.talentDraft;
-    if (!draft) {
-      this.renderError(new Error('天赋候选尚未生成。'));
+  private openCarryOrStart(): void {
+    const candidates = this.service.listCarryCandidates();
+    if (candidates.length === 0) {
+      this.runCommand(() => {
+        this.service.startNewLife([]);
+        this.renderLife();
+      });
       return;
     }
-    const viewModel = presentTalents(draft, this.selectedTalentIds, this.service.getContent());
-    renderTalents(this.kit, viewModel, {
+    this.selectedCarryIds = [];
+    this.renderCarry();
+  }
+
+  private renderCarry(): void {
+    const viewModel = presentCarry(this.service.listCarryCandidates(), this.selectedCarryIds);
+    renderCarry(this.kit, viewModel, {
       goHome: () => this.renderHome(),
       expand: (_key, title, body) => this.showOverlay(title, body),
-      toggle: (id) => this.toggleTalent(id),
-      begin: () => this.beginLife(),
-    });
-    this.paintOverlay();
-  }
-
-  private toggleTalent(talentId: string): void {
-    const draft = this.talentDraft;
-    if (!draft) {
-      return;
-    }
-    if (this.selectedTalentIds.includes(talentId)) {
-      this.selectedTalentIds = this.selectedTalentIds.filter((id) => id !== talentId);
-    } else if (this.selectedTalentIds.length < draft.requiredSelectionCount) {
-      this.selectedTalentIds = [...this.selectedTalentIds, talentId];
-    }
-    this.renderTalentSelection();
-  }
-
-  private beginLife(): void {
-    if (!this.talentDraft) {
-      this.renderError(new Error('缺少本世天赋信息。'));
-      return;
-    }
-    this.runCommand(() => {
-      this.service.startNewLife(this.talentDraft as TalentDraft, this.selectedTalentIds);
-      this.captureSnapshot(this.service.getCurrentRun());
-      this.renderLife();
-    });
-  }
-
-  private renderLife(preserveAutoPlay = false): void {
-    if (!preserveAutoPlay) {
-      this.stopAutoPlay();
-    }
-    const run = this.service.getCurrentRun();
-    if (!run) {
-      this.renderHome();
-      return;
-    }
-    const page = routePlayPage(run);
-    if (page === 'result') {
-      this.renderResult();
-      return;
-    }
-    if (page === 'path') {
-      this.renderPathSelect();
-      return;
-    }
-    if (page === 'scenario') {
-      this.renderScenario();
-      return;
-    }
-    if (page === 'summary') {
-      this.renderScenarioSummary();
-      return;
-    }
-    if (page === 'choice') {
-      this.renderChoice();
-      return;
-    }
-    this.renderReady(preserveAutoPlay);
-  }
-
-  private renderHistoryRegions(): void {
-    const regions = presentHistoryRegions(this.service.getContent());
-    renderHistoryRegions(this.kit, regions, {
-      goHome: () => this.renderHome(),
-      expand: (_key, title, body) => this.showOverlay(title, body),
-      openRegion: (id) => {
-        this.historyRegion = id;
-        this.selectedFigureId = null;
-        this.renderHistoryFigures();
-      },
-    });
-    this.paintOverlay();
-  }
-
-  private renderHistoryFigures(): void {
-    const regionId = this.historyRegion;
-    if (!regionId) {
-      this.renderHistoryRegions();
-      return;
-    }
-    const content = this.service.getContent();
-    const region = content.regions.find((item) => item.id === regionId);
-    const figures = presentHistoryFigures(regionId, content, this.selectedFigureId);
-    renderHistoryFigures(this.kit, region?.name ?? '历史', figures, {
-      goHome: () => this.renderHome(),
-      expand: (_key, title, body) => this.showOverlay(title, body),
-      select: (id) => {
-        this.selectedFigureId = id;
-        this.renderHistoryFigures();
-      },
-      confirm: () => {
-        if (!this.selectedFigureId) {
-          return;
+      toggle: (id) => {
+        if (this.selectedCarryIds.includes(id)) {
+          this.selectedCarryIds = this.selectedCarryIds.filter((item) => item !== id);
+        } else if (this.selectedCarryIds.length < 2) {
+          this.selectedCarryIds = [...this.selectedCarryIds, id];
         }
-        this.runCommand(() => {
-          this.service.startHistoryRun(this.selectedFigureId as string);
-          this.captureSnapshot(this.service.getCurrentRun());
-          this.renderLife();
-        });
+        this.renderCarry();
       },
-      back: () => this.renderHistoryRegions(),
-    });
-    this.paintOverlay();
-  }
-
-  private renderPathSelect(): void {
-    const run = this.service.getCurrentRun();
-    if (!run || run.status !== 'active') {
-      this.renderHome();
-      return;
-    }
-    const viewModel = presentPaths(run, this.service.getContent());
-    renderPaths(this.kit, viewModel, {
-      goHome: () => this.renderHome(),
-      expand: (_key, title, body) => this.showOverlay(title, body),
-      choose: (id) => this.runCommand(() => {
-        this.captureSnapshot(run);
-        this.service.chooseCurrentPath(id);
-        this.lastScenarioKey = '';
+      begin: () => this.runCommand(() => {
+        this.service.startNewLife(this.selectedCarryIds);
+        this.renderLife();
+      }),
+      skip: () => this.runCommand(() => {
+        this.service.startNewLife([]);
         this.renderLife();
       }),
     });
     this.paintOverlay();
   }
 
-  private renderScenario(): void {
+  private renderLife(): void {
     const run = this.service.getCurrentRun();
-    if (!run?.currentScenario || run.status !== 'active') {
-      this.renderLife();
+    const page = routePlayPage(run);
+    if (page === 'ending') {
+      this.renderEnding();
       return;
     }
-    const key = `${run.currentScenario.scenarioId}:${run.currentScenario.kind}`;
-    const keepScene = this.lastScenarioKey === key;
-    this.lastScenarioKey = key;
-    const viewModel = presentScenario(run, this.service.getContent(), this.snapshot ?? undefined);
-    renderScenario(this.kit, viewModel, {
-      goHome: () => this.renderHome(),
-      expand: (_key, title, body) => this.showOverlay(title, body),
-      act: (id) => this.runCommand(() => {
-        this.captureSnapshot(run);
-        this.service.resolveCurrentScenarioAction(id);
-        this.renderLife();
-      }),
-    }, keepScene);
-    this.paintOverlay();
+    if (page === 'recall') {
+      this.renderRecall();
+      return;
+    }
+    if (page === 'encounter') {
+      this.renderEncounter();
+      return;
+    }
+    this.renderHome();
   }
 
-  private renderScenarioSummary(): void {
+  private renderEncounter(): void {
     const run = this.service.getCurrentRun();
-    if (!run?.scenarioReport) {
+    if (!run?.pendingEncounter || run.status !== 'active') {
       this.renderLife();
       return;
     }
-    const viewModel = presentSummary(run, this.service.getContent(), this.snapshot ?? undefined);
-    renderSummary(this.kit, viewModel, {
-      goHome: () => this.renderHome(),
-      expand: (_key, title, body) => this.showOverlay(title, body),
-      next: () => this.runCommand(() => {
-        this.service.continueCurrentScenario();
-        this.lastScenarioKey = '';
-        this.captureSnapshot(this.service.getCurrentRun());
-        this.renderLife();
-      }),
-    });
-    this.paintOverlay();
-  }
-
-  private renderChoice(): void {
-    const run = this.service.getCurrentRun();
-    if (!run || run.status !== 'active' || run.turnState !== 'awaiting-choice' || !run.pendingDecision) {
-      this.renderLife();
-      return;
-    }
-    if (this.browseEventId !== run.pendingDecision.eventId) {
-      this.browseEventId = run.pendingDecision.eventId;
+    if (this.lastEncounterKey !== run.pendingEncounter.instanceId) {
+      this.lastEncounterKey = run.pendingEncounter.instanceId;
       this.selectedChoiceId = null;
-      this.foresightOpen = false;
     }
-    const viewModel = presentChoices(run, this.service.getContent(), this.selectedChoiceId, this.foresightOpen);
-    renderChoices(this.kit, viewModel, {
+    const viewModel = presentEncounter(run, this.service.getContent(), this.selectedChoiceId);
+    renderEncounter(this.kit, viewModel, {
       goHome: () => this.renderHome(),
       expand: (_key, title, body) => this.showOverlay(title, body),
       select: (id) => {
         this.selectedChoiceId = id;
-        this.renderChoice();
+        this.renderEncounter();
       },
       confirm: () => {
         if (!this.selectedChoiceId) {
           return;
         }
         this.runCommand(() => {
-          this.captureSnapshot(run);
-          this.service.resolveCurrentChoice(this.selectedChoiceId as string);
+          this.service.submitCurrentResponse(this.selectedChoiceId as string);
           this.selectedChoiceId = null;
           this.renderLife();
         });
       },
-      toggleForesight: () => {
-        this.foresightOpen = !this.foresightOpen;
-        this.renderChoice();
-      },
-      reroll: () => this.runCommand(() => {
-        this.service.rerollCurrentDecision();
-        this.browseEventId = '';
-        this.renderChoice();
-      }),
+      openPast: (id) => this.openCausality(id, 'encounter'),
     });
     this.paintOverlay();
   }
 
-  private renderReady(_preserveAutoPlay: boolean): void {
+  private renderRecall(): void {
     const run = this.service.getCurrentRun();
-    if (!run) {
-      this.renderHome();
+    if (!run?.pendingRecall || run.status !== 'active') {
+      this.renderLife();
       return;
     }
-    const viewModel = presentReady(run, this.service.getContent(), this.autoPlaying);
-    renderReady(this.kit, viewModel, {
+    const viewModel = presentRecall(run, this.selectedRecall);
+    renderRecall(this.kit, viewModel, {
       goHome: () => this.renderHome(),
       expand: (_key, title, body) => this.showOverlay(title, body),
-      advance: () => this.advanceOneYear(),
-      toggleAuto: () => this.toggleAutoPlay(),
-    });
-    this.paintOverlay();
-  }
-
-  private renderResult(): void {
-    this.stopAutoPlay();
-    const run = this.service.getCurrentRun();
-    if (!run?.settlement || !run.endingId) {
-      this.renderError(new Error('当前没有可展示的人生结算。'));
-      return;
-    }
-    const viewModel = presentResult(run, this.service.getProfile(), this.service.getContent());
-    renderResult(this.kit, viewModel, {
-      goHome: () => this.renderHome(),
-      expand: (_key, title, body) => this.showOverlay(title, body),
-      rewards: () => {
-        this.selectedRewardId = null;
-        this.renderRewardSelection();
+      select: (stance) => {
+        this.selectedRecall = stance;
+        this.renderRecall();
       },
-      nextLife: () => this.openTalentSelection(),
-    });
-    this.paintOverlay();
-  }
-
-  private renderRewardSelection(): void {
-    const run = this.service.getCurrentRun();
-    if (!run?.settlement || run.status !== 'reward-pending') {
-      this.renderResult();
-      return;
-    }
-    const viewModel = presentRewards(run, this.service.getProfile(), this.service.getContent(), this.selectedRewardId);
-    renderRewards(this.kit, viewModel, {
-      goHome: () => this.renderResult(),
-      expand: (_key, title, body) => this.showOverlay(title, body),
-      select: (id) => {
-        this.selectedRewardId = id;
-        this.renderRewardSelection();
-      },
-      claim: () => {
-        if (!this.selectedRewardId) {
+      confirm: () => {
+        if (!this.selectedRecall) {
           return;
         }
         this.runCommand(() => {
-          this.service.claimCurrentReward(this.selectedRewardId as string);
-          this.renderResult();
+          this.service.submitCurrentRecall(this.selectedRecall as RecallStance);
+          this.selectedRecall = null;
+          this.renderLife();
         });
+      },
+      openPast: (index) => {
+        const id = run.pendingRecall?.fragmentIds[index];
+        if (id) {
+          this.openCausality(id, 'recall');
+        }
       },
     });
     this.paintOverlay();
   }
 
-  private renderLegacyLoadout(): void {
-    const profile = this.service.getProfile();
-    const viewModel = presentLoadout(
-      profile,
-      this.service.getContent(),
-      this.service.getOwnedLegacies(),
-      this.service.getLegacySlotCount(),
-      this.selectedLegacyId,
-    );
-    renderLoadout(this.kit, viewModel, {
+  private renderEnding(): void {
+    const run = this.service.getCurrentRun();
+    if (!run?.closing) {
+      this.renderError(new Error('当前没有可展示的人生收束。'));
+      return;
+    }
+    const viewModel = presentEnding(run, this.service.getContent());
+    renderEnding(this.kit, viewModel, {
       goHome: () => this.renderHome(),
       expand: (_key, title, body) => this.showOverlay(title, body),
-      select: (id) => {
-        this.selectedLegacyId = id;
-        this.renderLegacyLoadout();
-      },
-      toggle: (id) => this.runCommand(() => {
-        this.service.toggleEquippedLegacy(id);
-        this.renderLegacyLoadout();
+      archive: () => this.runCommand(() => {
+        this.service.archiveCurrentLife();
+        this.openCarryOrStart();
       }),
+      nextLife: () => this.openCarryOrStart(),
     });
     this.paintOverlay();
+  }
+
+  private openCausality(id: string, from: 'encounter' | 'recall' | 'ending' | 'home'): void {
+    this.browseId = id;
+    this.returnPage = from;
+    this.renderCausality();
+  }
+
+  private renderCausality(): void {
+    const id = this.browseId;
+    if (!id) {
+      this.returnFromCausality();
+      return;
+    }
+    const record = this.service.inspectCausality(id);
+    if (!record) {
+      this.showOverlay('往事', '这段记录暂时找不到了。');
+      this.returnFromCausality();
+      return;
+    }
+    const viewModel = presentCausality(record);
+    renderCausality(this.kit, viewModel, {
+      goHome: () => this.renderHome(),
+      expand: (_key, title, body) => this.showOverlay(title, body),
+      back: () => this.returnFromCausality(),
+      openSource: (sourceId) => this.openCausality(sourceId, this.returnPage),
+    });
+    this.paintOverlay();
+  }
+
+  private returnFromCausality(): void {
+    this.browseId = null;
+    if (this.returnPage === 'recall') {
+      this.renderRecall();
+      return;
+    }
+    if (this.returnPage === 'ending') {
+      this.renderEnding();
+      return;
+    }
+    if (this.returnPage === 'encounter') {
+      this.renderEncounter();
+      return;
+    }
+    this.renderHome();
   }
 
   private renderError(error: unknown): void {
-    this.stopAutoPlay();
     const message = error instanceof Error ? error.message : String(error);
     console.error(error);
     renderError(this.kit, message, () => this.renderHome());
@@ -442,85 +281,19 @@ export class GameApp extends Component {
       this.renderHome();
       return;
     }
-    if (name === 'talents') {
-      this.renderTalentSelection();
+    if (name === 'carry') {
+      this.renderCarry();
       return;
     }
-    if (name === 'history-regions') {
-      this.renderHistoryRegions();
+    if (name === 'causality') {
+      this.renderCausality();
       return;
     }
-    if (name === 'history-figures') {
-      this.renderHistoryFigures();
+    if (name === 'ending') {
+      this.renderEnding();
       return;
     }
-    if (name === 'loadout') {
-      this.renderLegacyLoadout();
-      return;
-    }
-    if (name === 'rewards') {
-      this.renderRewardSelection();
-      return;
-    }
-    if (name === 'result') {
-      this.renderResult();
-      return;
-    }
-    this.renderLife(this.autoPlaying);
-  }
-
-  private advanceOneYear(): void {
-    if (this.advancing) {
-      return;
-    }
-    this.advancing = true;
-    try {
-      const current = this.service.getCurrentRun();
-      this.captureSnapshot(current);
-      const run = this.service.advanceCurrentLife();
-      if (run.status === 'active' && run.turnState === 'ready') {
-        this.renderLife(true);
-      } else if (run.status === 'active') {
-        this.stopAutoPlay();
-        this.renderLife();
-      } else {
-        this.stopAutoPlay();
-        this.renderResult();
-      }
-    } catch (error) {
-      this.stopAutoPlay();
-      this.renderError(error);
-    } finally {
-      this.advancing = false;
-    }
-  }
-
-  private toggleAutoPlay(): void {
-    if (this.autoPlaying) {
-      this.stopAutoPlay();
-      this.renderLife();
-      return;
-    }
-    const run = this.service.getCurrentRun();
-    if (!run || run.status !== 'active' || run.turnState !== 'ready') {
-      this.renderLife();
-      return;
-    }
-    this.autoPlaying = true;
-    this.schedule(this.autoTick, 0.45);
-    this.renderLife(true);
-  }
-
-  private readonly autoTick = (): void => {
-    this.advanceOneYear();
-  };
-
-  private stopAutoPlay(): void {
-    if (!this.autoPlaying) {
-      return;
-    }
-    this.unschedule(this.autoTick);
-    this.autoPlaying = false;
+    this.renderLife();
   }
 
   private runCommand(work: () => void): void {
@@ -535,17 +308,6 @@ export class GameApp extends Component {
     } finally {
       this.submitting = false;
     }
-  }
-
-  private captureSnapshot(run: LifeRun | null): void {
-    if (!run) {
-      this.snapshot = null;
-      return;
-    }
-    this.snapshot = {
-      resources: run.currentScenario ? { ...run.currentScenario.resources } : undefined,
-      marks: (run.marks ?? []).map((mark) => ({ ...mark })),
-    };
   }
 
   private createSeed(): number {

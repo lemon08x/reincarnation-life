@@ -1,11 +1,19 @@
-export const SAVE_VERSION = 2;
-export const RULES_VERSION = 5;
+export const SAVE_VERSION = 3;
+export const RULES_VERSION = 6;
 
-export const STAT_KEYS = ['health', 'intellect', 'charm', 'wealth'] as const;
+export const LIFE_POINT_START = 2;
+export const LIFE_POINT_CAP = 4;
+export const LIFE_POINT_RECALL_GAIN = 1;
+export const MAX_RECALLS_PER_LIFE = 2;
+export const RECALL_AFTER_COUNTS = [3, 6] as const;
+export const MIN_ENCOUNTERS = 6;
+export const MAX_ENCOUNTERS = 8;
+export const BREAK_HABIT_COST = 1;
+export const PURSUE_OPPORTUNITY_COST = 2;
+export const MAX_CARRIED_UNDERSTANDINGS = 2;
 
-export type StatKey = (typeof STAT_KEYS)[number];
-export type Stats = Record<StatKey, number>;
-export type StatDelta = Partial<Record<StatKey, number>>;
+export const LIFE_THEMES = ['trust', 'belonging', 'worth'] as const;
+export type LifeTheme = (typeof LIFE_THEMES)[number];
 
 export const LIFE_DOMAINS = [
   'health',
@@ -28,6 +36,34 @@ export const RELATION_KINDS = [
   'community',
 ] as const;
 export type RelationKind = (typeof RELATION_KINDS)[number];
+
+export const MARK_SLOTS = ['body', 'mind', 'bond', 'means'] as const;
+export type MarkSlot = (typeof MARK_SLOTS)[number];
+export type MarkNature = 'aura' | 'possession' | 'burden';
+
+export type ScenarioKind =
+  | 'childhood'
+  | 'studies'
+  | 'commerce'
+  | 'craft'
+  | 'journey'
+  | 'hearth'
+  | 'service'
+  | 'dusk';
+
+export type HistoryRegionId = 'china-ancient' | 'china-modern' | 'west-ancient' | 'west-modern';
+
+export type LifeStatus = 'active' | 'awaiting-archive' | 'settled';
+export type LifeTurnState =
+  | 'awaiting-response'
+  | 'awaiting-recall'
+  | 'awaiting-archive'
+  | 'settled';
+
+export type TriggerKind = 'family' | 'era' | 'chance' | 'consequence' | 'thread-conflict';
+export type LifePointReason = 'start' | 'recall' | 'spend';
+export type RecallStance = 'hold' | 'revise' | 'question';
+export type CostKind = 'free' | 'break-habit' | 'pursue-opportunity';
 
 export interface LifeFact {
   value: string;
@@ -78,10 +114,6 @@ export interface ThreadChange {
   resolve?: boolean;
 }
 
-export const MARK_SLOTS = ['body', 'mind', 'bond', 'means'] as const;
-export type MarkSlot = (typeof MARK_SLOTS)[number];
-export type MarkNature = 'aura' | 'possession' | 'burden';
-
 export interface MarkDef {
   id: string;
   slot: MarkSlot;
@@ -107,7 +139,6 @@ export interface MarkChange {
 }
 
 export interface WorldChange {
-  stats?: StatDelta;
   addTags?: string[];
   setFacts?: Record<string, string>;
   clearFacts?: string[];
@@ -116,271 +147,115 @@ export interface WorldChange {
   marks?: MarkChange[];
 }
 
-export interface TalentConfig {
+export interface EncounterCondition {
+  requiredTags?: string[];
+  forbiddenTags?: string[];
+  anyTags?: string[];
+  requiredFacts?: Record<string, string>;
+  forbiddenFacts?: string[];
+  anyFacts?: Record<string, string[]>;
+  requiredRelations?: string[];
+  minPressures?: Partial<Record<LifeDomain, number>>;
+}
+
+export interface PersonBinding {
+  role: string;
+  relationId: string;
+  fallbackLabel: string;
+  createIfMissing?: {
+    kind: RelationKind;
+    label: string;
+    closeness: number;
+  };
+}
+
+export interface BoundPerson {
+  role: string;
+  relationId: string;
+  label: string;
+}
+
+export interface SupportRule {
+  anyTags?: string[];
+  requiredTags?: string[];
+  anyFragmentTags?: string[];
+  understandingIds?: string[];
+  ifUnsupported: 'hide' | 'cost-break';
+}
+
+export interface ScheduledEncounterConfig {
+  templateId: string;
+  afterYears: number;
+  windowYears?: number;
+  note: string;
+}
+
+export interface EncounterOutcomeConfig {
+  id: string;
+  weight: number;
+  text: string;
+  world: WorldChange;
+  later: string;
+  schedule?: ScheduledEncounterConfig[];
+}
+
+export interface EncounterChoiceConfig {
+  id: string;
+  text: string;
+  preview: string;
+  costKind: CostKind;
+  support?: SupportRule;
+  supportReason?: string;
+  condition?: EncounterCondition;
+  fragmentTags: string[];
+  understandingHint?: string;
+  outcomes: EncounterOutcomeConfig[];
+}
+
+export interface EncounterTemplate {
+  id: string;
+  theme: LifeTheme;
+  crossThemes?: LifeTheme[];
+  title: string;
+  text: string;
+  minAge: number;
+  maxAge: number;
+  years: number;
+  sceneKind: ScenarioKind;
+  weight: number;
+  people: PersonBinding[];
+  triggerKind: TriggerKind;
+  triggerNote: string;
+  condition?: EncounterCondition;
+  choices: EncounterChoiceConfig[];
+}
+
+export interface UnderstandingSeed {
+  id: string;
+  theme: LifeTheme;
+  anyFragmentTags: string[];
+  initial: string;
+  revised: string;
+  question: string;
+}
+
+export interface TemperamentConfig {
   id: string;
   name: string;
   description: string;
-  unlockLevel: number;
-  effects: StatDelta;
   tags?: string[];
-  world?: WorldChange;
   grantMarks?: MarkChange[];
+  world?: WorldChange;
 }
 
 export interface FamilyConfig {
   id: string;
   name: string;
   description: string;
-  unlockLevel: number;
   weight: number;
-  effects: StatDelta;
   tags?: string[];
   world?: WorldChange;
   grantMarks?: MarkChange[];
-}
-
-export interface EventCondition {
-  minStats?: StatDelta;
-  maxStats?: StatDelta;
-  requiredTags?: string[];
-  forbiddenTags?: string[];
-  anyTags?: string[];
-  requiredTalentIds?: string[];
-  requiredEventIds?: string[];
-  requiredFocusIds?: string[];
-  requiredCapabilityTags?: string[];
-  requiredFacts?: Record<string, string>;
-  forbiddenFacts?: string[];
-  anyFacts?: Record<string, string[]>;
-  requiredRelations?: string[];
-  minPressures?: Partial<Record<LifeDomain, number>>;
-  requiredMarks?: Record<string, number>;
-}
-
-export interface EventCoupling {
-  allFacts?: Record<string, string>;
-  anyFacts?: Record<string, string[]>;
-  allTags?: string[];
-  allRelations?: string[];
-  minPressures?: Partial<Record<LifeDomain, number>>;
-  weightBonus: number;
-}
-
-export interface ScheduledEventConfig {
-  eventId: string;
-  afterYears: number;
-  windowYears?: number;
-}
-
-export interface EventOutcomeConfig {
-  id: string;
-  weight: number;
-  text: string;
-  effects?: StatDelta;
-  addTags?: string[];
-  world?: WorldChange;
-  schedule?: ScheduledEventConfig[];
-  terminalReason?: string;
-}
-
-export interface EventChoiceConfig {
-  id: string;
-  text: string;
-  preview: string;
-  condition?: EventCondition;
-  outcomes: EventOutcomeConfig[];
-}
-
-export interface LifeEventConfig {
-  id: string;
-  minAge: number;
-  maxAge: number;
-  text: string;
-  weight: number;
-  unlockLevel?: number;
-  once?: boolean;
-  themes?: string[];
-  domains?: LifeDomain[];
-  effects?: StatDelta;
-  addTags?: string[];
-  world?: WorldChange;
-  couplings?: EventCoupling[];
-  condition?: EventCondition;
-  choices?: EventChoiceConfig[];
-  terminalReason?: string;
-}
-
-export interface EndingConfig {
-  id: string;
-  title: string;
-  description: string;
-  priority: number;
-  minAge?: number;
-  maxAge?: number;
-  minStats?: StatDelta;
-  requiredTags?: string[];
-  requiredMarks?: Record<string, number>;
-}
-
-export interface LifeFocusConfig {
-  id: string;
-  name: string;
-  description: string;
-  effects: StatDelta;
-  preferredThemes: string[];
-  capabilityTags?: string[];
-  world?: WorldChange;
-}
-
-export interface LifeStageConfig {
-  id: string;
-  name: string;
-  minAge: number;
-  maxAge: number;
-  focuses: LifeFocusConfig[];
-}
-
-export interface PermanentBenefits {
-  attributePointBonus: number;
-  talentCandidateBonus: number;
-  legacySlotBonus: number;
-}
-
-export interface LevelConfig {
-  level: number;
-  requiredExp: number;
-  rewardText: string;
-  benefits?: Partial<PermanentBenefits>;
-}
-
-export type LegacyCategory = 'origin' | 'fate' | 'path' | 'story' | 'boon';
-export type LegacyPersistence = 'permanent' | 'next-life';
-
-export type LegacyEffect =
-  | { type: 'starting-points'; amount: number }
-  | { type: 'talent-candidates'; amount: number }
-  | { type: 'event-reroll'; charges: number }
-  | { type: 'choice-foresight'; detail: 'direction' | 'range' }
-  | { type: 'death-guard'; charges: number }
-  | { type: 'negative-shield'; charges: number }
-  | { type: 'event-theme-boost'; theme: string }
-  | { type: 'unlock-choice-tag'; tag: string }
-  | { type: 'unlock-content-tag'; tag: string };
-
-export interface LegacyCondition {
-  anyTags?: string[];
-  requiredTags?: string[];
-  endingIds?: string[];
-  minAge?: number;
-  maxAge?: number;
-}
-
-export interface LegacyConfig {
-  id: string;
-  name: string;
-  description: string;
-  category: LegacyCategory;
-  persistence: LegacyPersistence;
-  unlockLevel: number;
-  maxRank: number;
-  effect: LegacyEffect;
-  condition?: LegacyCondition;
-}
-
-export interface GameContent {
-  talents: TalentConfig[];
-  families: FamilyConfig[];
-  events: LifeEventConfig[];
-  endings: EndingConfig[];
-  levels: LevelConfig[];
-  stages: LifeStageConfig[];
-  legacies: LegacyConfig[];
-  marks: MarkDef[];
-  scenarios: ScenarioConfig[];
-  regions: HistoryRegion[];
-  figures: HistoryFigure[];
-}
-
-export interface ReincarnatorProfile {
-  version: number;
-  totalExp: number;
-  level: number;
-  discoveredEndingIds: string[];
-  settledRunIds: string[];
-  rewardedRunIds: string[];
-  legacyRanks: Record<string, number>;
-  equippedLegacyIds: string[];
-  pendingBoonIds: string[];
-}
-
-export type LifeStatus = 'active' | 'ended' | 'reward-pending' | 'settled';
-export type LifeTurnState =
-  | 'awaiting-focus'
-  | 'awaiting-path'
-  | 'in-scenario'
-  | 'awaiting-choice'
-  | 'scenario-summary'
-  | 'ready';
-
-export type PlayMode = 'free' | 'history';
-export type HistoryRegionId = 'china-ancient' | 'china-modern' | 'west-ancient' | 'west-modern';
-export type ScenarioKind =
-  | 'childhood'
-  | 'studies'
-  | 'commerce'
-  | 'craft'
-  | 'journey'
-  | 'hearth'
-  | 'service'
-  | 'dusk';
-export type ScenarioIcon = 'seed' | 'book' | 'coin' | 'hammer' | 'road' | 'home' | 'seal' | 'lamp';
-
-export interface ScenarioOutcome {
-  id: string;
-  weight: number;
-  text: string;
-  resources?: Record<string, number>;
-  world?: WorldChange;
-  addTags?: string[];
-}
-
-export interface ScenarioAction {
-  id: string;
-  title: string;
-  hint: string;
-  icon: ScenarioIcon;
-  cost?: Record<string, number>;
-  condition?: EventCondition;
-  outcomes: ScenarioOutcome[];
-}
-
-export interface ScenarioBeat {
-  id: string;
-  text: string;
-  weight: number;
-  once?: boolean;
-  condition?: EventCondition;
-  resources?: Record<string, number>;
-  world?: WorldChange;
-  addTags?: string[];
-  choices?: EventChoiceConfig[];
-}
-
-export interface ScenarioConfig {
-  id: string;
-  title: string;
-  kind: ScenarioKind;
-  icon: ScenarioIcon;
-  summary: string;
-  minAge: number;
-  maxAge: number;
-  turns: number;
-  years: number;
-  startResources: Record<string, number>;
-  resourceLabels: Record<string, string>;
-  actions: ScenarioAction[];
-  beats: ScenarioBeat[];
-  modes?: PlayMode[];
 }
 
 export interface HistoryChapter {
@@ -407,97 +282,155 @@ export interface HistoryRegion {
   description: string;
 }
 
-export interface ActiveScenario {
-  scenarioId: string;
-  title: string;
-  kind: ScenarioKind;
-  icon: ScenarioIcon;
-  turn: number;
-  maxTurns: number;
-  years: number;
-  resources: Record<string, number>;
-  resourceLabels: Record<string, string>;
-  log: string[];
-  actionIds: string[];
-  beatId?: string;
-  beatText?: string;
-  startedAtAge: number;
+export interface GameContent {
+  families: FamilyConfig[];
+  temperaments: TemperamentConfig[];
+  encounters: EncounterTemplate[];
+  understandingSeeds: UnderstandingSeed[];
+  marks: MarkDef[];
+  regions: HistoryRegion[];
+  figures: HistoryFigure[];
 }
 
-export interface ScenarioReport {
-  title: string;
-  years: number;
-  ageAfter: number;
-  lines: string[];
+export interface LifePointEntry {
+  age: number;
+  reason: LifePointReason;
+  amount: number;
+  balance: number;
+  encounterInstanceId?: string;
+  note: string;
 }
 
-export interface RunCapabilities {
-  startingPointBonus: number;
-  talentCandidateBonus: number;
-  eventRerolls: number;
-  choiceForesight: 'none' | 'direction' | 'range';
-  deathGuards: number;
-  negativeShields: number;
-  eventThemeBoosts: string[];
-  choiceTags: string[];
-  contentTags: string[];
-}
-
-export interface RunFateState {
-  eventRerollsRemaining: number;
-  deathGuardsRemaining: number;
-  negativeShieldsRemaining: number;
-}
-
-export interface StageSelection {
-  stageId: string;
-  focusId: string;
-  selectedAtAge: number;
-}
-
-export interface ScheduledLifeEvent {
-  eventId: string;
+export interface ScheduledEncounter {
+  templateId: string;
   earliestAge: number;
   latestAge: number;
-  sourceChoiceId: string;
+  sourceEncounterInstanceId: string;
+  sourceFragmentId: string;
+  note: string;
 }
 
-export interface PendingLifeDecision {
-  age: number;
-  eventId: string;
-  choiceIds: string[];
-  automaticEffects: StatDelta;
-  rerolledEventIds: string[];
-  sourceChoiceId?: string;
-  pressureNote?: string;
-}
-
-export interface LifeHistoryEntry {
-  age: number;
-  eventId: string;
+export interface PendingOption {
+  choiceId: string;
   text: string;
-  effects: StatDelta;
-  tagsAdded: string[];
-  choiceId?: string;
-  outcomeId?: string;
-  causedByChoiceId?: string;
-  worldChanges?: string[];
-  markChanges?: string[];
-  touchedDomains?: LifeDomain[];
-  pressureNote?: string;
+  preview: string;
+  cost: number;
+  costKind: CostKind;
+  supportReason?: string;
+  supportedByFragmentIds: string[];
+  enabled: boolean;
+  disabledReason?: string;
 }
 
-export interface LifeSettlement {
-  score: number;
-  earnedExp: number;
-  baseExp: number;
-  performanceExp: number;
-  firstDiscoveryExp: number;
-  previousLevel: number;
-  newLevel: number;
-  newRewardTexts: string[];
-  rewardOfferIds: string[];
-  selectedRewardId?: string;
+export interface PendingEncounter {
+  instanceId: string;
+  templateId: string;
+  age: number;
+  text: string;
+  title: string;
+  sceneKind: ScenarioKind;
+  theme: LifeTheme;
+  triggerKind: TriggerKind;
+  triggerNote: string;
+  triggerSourceIds: string[];
+  boundPeople: BoundPerson[];
+  recalledFragmentIds: string[];
+  recalledNotes: string[];
+  options: PendingOption[];
+  rngState: number;
+}
+
+export interface PendingRecallOption {
+  stance: RecallStance;
+  label: string;
+  statement: string;
+}
+
+export interface PendingRecall {
+  instanceId: string;
+  recallIndex: 1 | 2;
+  fragmentIds: string[];
+  seedId: string;
+  existingUnderstandingId?: string;
+  prompt: string;
+  options: PendingRecallOption[];
+}
+
+export interface ExperienceFragment {
+  id: string;
+  contentKey: string;
+  runId: string;
+  age: number;
+  encounterInstanceId: string;
+  templateId: string;
+  theme: LifeTheme;
+  people: BoundPerson[];
+  whatHappened: string;
+  howIResponded: string;
+  choiceId: string;
+  outcomeId: string;
+  costPaid: number;
+  fragmentTags: string[];
+  recalledFragmentIds: string[];
+  understandingAtTime?: string;
+  understandingId?: string;
+  laterWhat: string[];
+  triggerKind: TriggerKind;
+  triggerNote: string;
+  triggerSourceIds: string[];
+  worldChanges: string[];
+}
+
+export interface Understanding {
+  id: string;
+  contentKey: string;
+  theme: LifeTheme;
+  statement: string;
+  stance: RecallStance;
+  version: number;
+  previousVersionId?: string;
+  sourceFragmentIds: string[];
+  createdInRunId: string;
+  createdAtAge: number;
+}
+
+export interface DiscoverySource {
+  runId: string;
+  fragmentId: string;
+  understandingId?: string;
+  personLabels: string[];
+  age: number;
+}
+
+export interface ArchiveDiscovery {
+  contentKey: string;
+  title: string;
+  latestStatement: string;
+  variantStatements: string[];
+  sources: DiscoverySource[];
+}
+
+export interface LifeClosing {
+  title: string;
+  text: string;
+  shapedBy: string[];
+  changed: string[];
+  unresolved: string[];
+  unfulfilled: string[];
+}
+
+export interface CausalityRecord {
+  id: string;
+  kind: 'fragment' | 'understanding' | 'encounter';
+  title: string;
+  happened: string;
+  response?: string;
+  understood?: string;
+  later: string[];
+  people: Array<{ id: string; label: string }>;
+  trigger: { kind: TriggerKind | 'recall'; note: string };
+  evoked: Array<{ id: string; note: string }>;
+  sources: Array<{ id: string; relation: string }>;
 }
 
 export interface LifeRun {
@@ -505,65 +438,51 @@ export interface LifeRun {
   seed: number;
   rngState: number;
   rulesVersion: number;
-  profileLevelAtStart: number;
   status: LifeStatus;
   turnState: LifeTurnState;
-  playMode: PlayMode;
-  historyRegion?: HistoryRegionId;
-  figureId?: string;
-  chapterIndex: number;
   age: number;
   familyId: string;
-  talentIds: string[];
-  allocation: Stats;
-  stats: Stats;
+  temperamentId: string;
   tags: string[];
   marks: LifeMark[];
   world: LifeWorld;
-  history: LifeHistoryEntry[];
-  currentStageId: string;
-  currentFocusId?: string;
-  stageSelections: StageSelection[];
-  scheduledEvents: ScheduledLifeEvent[];
-  pendingDecision?: PendingLifeDecision;
-  currentScenario?: ActiveScenario;
-  scenarioReport?: ScenarioReport;
-  completedScenarioIds: string[];
-  capabilities: RunCapabilities;
-  fate: RunFateState;
-  endReason?: string;
-  endingId?: string;
-  settlement?: LifeSettlement;
+  lifePoints: number;
+  lifePointCap: number;
+  lifePointLog: LifePointEntry[];
+  encounterCount: number;
+  recallCount: number;
+  nextEncounterSeq: number;
+  nextFragmentSeq: number;
+  nextUnderstandingSeq: number;
+  lineA: LifeTheme;
+  lineB: LifeTheme;
+  usedTemplateIds: string[];
+  resolvedEncounterIds: string[];
+  resolvedRecallIds: string[];
+  fragments: ExperienceFragment[];
+  understandings: Understanding[];
+  carriedUnderstandingIds: string[];
+  scheduled: ScheduledEncounter[];
+  pendingEncounter?: PendingEncounter;
+  pendingRecall?: PendingRecall;
+  closing?: LifeClosing;
+  skippedYearNotes: string[];
 }
 
-export interface TalentDraft {
-  seed: number;
-  rngState: number;
-  candidateIds: string[];
-  requiredSelectionCount: number;
+export interface ReincarnatorProfile {
+  version: number;
+  archivedRunIds: string[];
+  discoveries: ArchiveDiscovery[];
+  understandings: Understanding[];
+  fragments: ExperienceFragment[];
+  lastClosing?: LifeClosing;
+  lastRunId?: string;
 }
 
 export interface GameSave {
   version: number;
   profile: ReincarnatorProfile;
   currentRun: LifeRun | null;
-}
-
-export interface LevelProgress {
-  currentLevel: number;
-  currentThreshold: number;
-  nextThreshold: number | null;
-  progress: number;
-  nextRewardText: string | null;
-}
-
-export function emptyStats(): Stats {
-  return {
-    health: 0,
-    intellect: 0,
-    charm: 0,
-    wealth: 0,
-  };
 }
 
 export function emptyWorld(): LifeWorld {
@@ -574,29 +493,22 @@ export function emptyWorld(): LifeWorld {
   };
 }
 
-export function mergeStatDeltas(...deltas: Array<StatDelta | undefined>): StatDelta {
-  const result = emptyStats();
-  for (const delta of deltas) {
-    if (!delta) {
-      continue;
-    }
-    for (const key of STAT_KEYS) {
-      result[key] += delta[key] ?? 0;
-    }
-  }
-  return result;
+export function createInitialProfile(): ReincarnatorProfile {
+  return {
+    version: RULES_VERSION,
+    archivedRunIds: [],
+    discoveries: [],
+    understandings: [],
+    fragments: [],
+  };
 }
 
-export function emptyRunCapabilities(): RunCapabilities {
-  return {
-    startingPointBonus: 0,
-    talentCandidateBonus: 0,
-    eventRerolls: 0,
-    choiceForesight: 'none',
-    deathGuards: 0,
-    negativeShields: 0,
-    eventThemeBoosts: [],
-    choiceTags: [],
-    contentTags: [],
-  };
+export function themeLabel(theme: LifeTheme): string {
+  if (theme === 'trust') {
+    return '信任与自我保护';
+  }
+  if (theme === 'belonging') {
+    return '离开与归属';
+  }
+  return '价值与被需要';
 }

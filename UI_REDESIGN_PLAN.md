@@ -54,4 +54,4 @@
 
 后续实施时使用项目已有的 `npm run build:web` 和 `npm run build:wechat` 生成构建。当前已有 Web 构建早于上述代码基线，不能作为改造后的验收产物；应以重新构建的页面为准。
 
-工程运行和构建说明见 [README.md](README.md)，现有产品与玩法背景见 [Game_Design.md](Game_Design.md)。本计划记录已确认的 UI 改造方向；实施时以当前代码核对具体状态与接口，保持原有玩法和存档行为。
+工程运行和构建说明见 [README.md](README.md)，现有产品与玩法背景见 [Game_Design.md](Game_Design.md)。本计划记录已确认的 UI 改造方向。视觉资源、分层和控件仍适用；其中要求保留旧玩法入口、经验面板和历史模式流程的条款，已被后续 [玩法重构计划](GAMEPLAY_REFACTOR_PLAN.md) 取代。

@@ -2,11 +2,11 @@
   "ver": "4.0.24",
   "importer": "typescript",
   "imported": true,
-  "uuid": "d5e93a29-8c61-4f40-b13a-4e907c13f268",
+  "uuid": "7e4c91a2-18b0-4f6d-9c33-a1d8e5b2470f",
   "files": [],
   "subMetas": {},
   "userData": {
-    "moduleId": "project:///assets/scripts/content/scenarioContent.js",
+    "moduleId": "project:///assets/scripts/content/encounterContent.js",
     "importerSettings": 0,
     "simulateGlobals": []
   }

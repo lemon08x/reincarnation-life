@@ -1,47 +1,36 @@
 import { GameService, SaveStore } from '../assets/scripts/app/gameService';
 import {
-  presentChoices,
-  presentScenario,
-  presentStateDiff,
+  presentEncounter,
+  presentHome,
   presentStoryText,
+  routePlayPage,
 } from '../assets/scripts/app/presentation/presenters';
-import { SCENE_KIND_NAMES, SCENE_VISUALS } from '../assets/scripts/app/presentation/visualConfig';
 import { GAME_CONTENT } from '../assets/scripts/content/gameContent';
 import { validateGameContent } from '../assets/scripts/core/contentValidation';
 import {
-  advanceToNextMoment,
-  chooseLifePath,
-  chooseStageFocus,
-  continueScenario,
-  drawTalentDraft,
-  getCurrentLifeStage,
-  getEventSelectionWeight,
-  getPendingEvent,
-  listAvailablePaths,
-  listEligibleEvents,
-  resolveEventChoice,
-  resolveScenarioAction,
-  startHistoryLife,
+  causalityHasCycle,
+  completeArchive,
+  createInitialProfile,
+  getCausality,
   startLife,
+  submitRecall,
+  submitResponse,
 } from '../assets/scripts/core/lifeEngine';
-import { markIntensity, markOutcomeMultiplier } from '../assets/scripts/core/lifeMarks';
-import { computeWorldPressures, formatWorldSummary, tickLifeWorld } from '../assets/scripts/core/lifeWorld';
 import {
   GameSave,
   LifeRun,
-  ReincarnatorProfile,
+  PendingOption,
+  RecallStance,
   SAVE_VERSION,
-  ScenarioKind,
 } from '../assets/scripts/core/model';
+import { nextRandom, normalizeSeed, pickWeighted } from '../assets/scripts/core/random';
 import {
-  createInitialProfile,
-  getLegacySlotCount,
-  getPermanentBenefits,
-  getRunCapabilities,
-  normalizeProfile,
-} from '../assets/scripts/core/progression';
-import { claimLegacyReward, prepareSettlement } from '../assets/scripts/core/rewardEngine';
-import { migrateGameSave } from '../assets/scripts/core/saveMigration';
+  CURRENT_SAVE_KEY,
+  OBSOLETE_SAVE_KEYS,
+  StorageAdapter,
+  clearObsoleteSaveKeys,
+  parseGameSave,
+} from '../assets/scripts/core/saveMigration';
 
 type TestCase = {
   name: string;
@@ -76,730 +65,435 @@ function assertThrows(run: () => void, message: string): void {
   assert(threw, message);
 }
 
-function startTestLife(
-  profile: ReincarnatorProfile,
-  seed: number,
-  runId = `test-life-${seed}`,
-): LifeRun {
-  const draft = drawTalentDraft(profile, seed, GAME_CONTENT);
-  return startLife(
-    profile,
-    draft,
-    draft.candidateIds.slice(0, draft.requiredSelectionCount),
-    runId,
-    GAME_CONTENT,
-  );
-}
-
-function chooseFirstFocus(run: LifeRun): LifeRun {
-  const stage = getCurrentLifeStage(run, GAME_CONTENT);
-  const focus = stage.focuses[0];
-  assert(Boolean(focus), `stage ${stage.id} should have a focus`);
-  return chooseStageFocus(run, focus.id, GAME_CONTENT);
-}
-
-function finishLifeWithFirstChoices(initialRun: LifeRun): LifeRun {
-  let run = initialRun;
-  for (let step = 0; step < 500 && run.status === 'active'; step += 1) {
-    run = stepLife(run);
-  }
-  assertEqual(run.status, 'ended', `life ${run.id} should reach an ending`);
-  return run;
-}
-
-function stepLife(run: LifeRun): LifeRun {
-  if (run.turnState === 'awaiting-path' || run.turnState === 'awaiting-focus') {
-    const paths = listAvailablePaths(run, GAME_CONTENT);
-    if (paths[0]) {
-      return chooseLifePath(run, paths[0].id, GAME_CONTENT);
-    }
-    if (run.turnState === 'awaiting-focus') {
-      return chooseFirstFocus(run);
-    }
-    return continueScenario({ ...run, turnState: 'scenario-summary', scenarioReport: {
-      title: '空',
-      years: 1,
-      ageAfter: Math.min(100, run.age + 1),
-      lines: [],
-    }, completedScenarioIds: [...run.completedScenarioIds, 'dusk'] }, GAME_CONTENT);
-  }
-  if (run.turnState === 'awaiting-choice') {
-    const choiceId = run.pendingDecision?.choiceIds[0];
-    assert(choiceId !== undefined, 'a pending decision should offer at least one choice');
-    return resolveEventChoice(run, choiceId, GAME_CONTENT);
-  }
-  if (run.turnState === 'in-scenario') {
-    const action = run.currentScenario?.actionIds[0];
-    assert(action !== undefined, 'a scenario should offer an action');
-    return resolveScenarioAction(run, action, GAME_CONTENT);
-  }
-  if (run.turnState === 'scenario-summary') {
-    return continueScenario(run, GAME_CONTENT);
-  }
-  return advanceToNextMoment(run, GAME_CONTENT);
-}
-
-function findRunWaitingForDecision(): LifeRun {
-  const profile = createInitialProfile(GAME_CONTENT);
-  for (let seed = 1; seed <= 100; seed += 1) {
-    let run = startTestLife(profile, seed, `decision-search-${seed}`);
-    for (let step = 0; step < 200 && run.status === 'active'; step += 1) {
-      if (run.turnState === 'awaiting-choice') {
-        return run;
-      }
-      run = stepLife(run);
-    }
-  }
-  throw new Error('No deterministic seed reached a key decision.');
-}
-
-class MemoryStore implements SaveStore {
-  public value: GameSave | null = null;
-
-  public load(): GameSave | null {
-    return this.value ? clone(this.value) : null;
-  }
-
-  public save(value: GameSave): void {
-    this.value = clone(value);
-  }
-}
-
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function uniqueTags(values: string[]): string[] {
-  return [...new Set(values)];
-}
+class MemoryStore implements SaveStore, StorageAdapter {
+  public slots: Record<string, string> = {};
 
-function chooseServiceFocus(service: GameService): void {
-  const run = service.getCurrentRun();
-  assert(run?.status === 'active' && run.turnState === 'awaiting-focus', 'service should await a focus');
-  const stage = getCurrentLifeStage(run, service.getContent());
-  service.chooseCurrentStageFocus(stage.focuses[0].id);
-}
+  public getItem(key: string): string | null {
+    return this.slots[key] ?? null;
+  }
 
-function finishServiceLife(service: GameService): LifeRun {
-  for (let step = 0; step < 500; step += 1) {
-    const run = service.getCurrentRun();
-    assert(run !== null, 'service should contain a life');
-    if (run.status !== 'active') {
-      return run;
+  public setItem(key: string, value: string): void {
+    this.slots[key] = value;
+  }
+
+  public removeItem(key: string): void {
+    delete this.slots[key];
+  }
+
+  public load(): GameSave | null {
+    clearObsoleteSaveKeys(this);
+    const raw = this.getItem(CURRENT_SAVE_KEY);
+    if (!raw) {
+      return null;
     }
-    if (run.turnState === 'awaiting-path') {
-      const paths = listAvailablePaths(run, service.getContent());
-      assert(paths[0] !== undefined, 'service should offer a path');
-      service.chooseCurrentPath(paths[0].id);
-    } else if (run.turnState === 'in-scenario') {
-      const actionId = run.currentScenario?.actionIds[0];
-      assert(actionId !== undefined, 'service scenario should offer an action');
-      service.resolveCurrentScenarioAction(actionId);
-    } else if (run.turnState === 'scenario-summary') {
-      service.continueCurrentScenario();
-    } else if (run.turnState === 'awaiting-focus') {
-      chooseServiceFocus(service);
-    } else if (run.turnState === 'awaiting-choice') {
-      const choiceId = run.pendingDecision?.choiceIds[0];
-      assert(choiceId !== undefined, 'service decision should offer a choice');
-      service.resolveCurrentChoice(choiceId);
+    try {
+      return parseGameSave(JSON.parse(raw) as unknown);
+    } catch {
+      return null;
+    }
+  }
+
+  public save(value: GameSave): void {
+    this.setItem(CURRENT_SAVE_KEY, JSON.stringify(value));
+  }
+}
+
+function pickOption(options: PendingOption[], style: number, points: number): PendingOption {
+  const affordable = options.filter((item) => item.enabled && item.cost <= points);
+  assert(affordable.length > 0, 'an encounter should keep at least one affordable option');
+  if (style % 3 === 1) {
+    return [...affordable].sort((left, right) => right.cost - left.cost)[0];
+  }
+  if (style % 3 === 2) {
+    return affordable[Math.min(1, affordable.length - 1)];
+  }
+  return affordable.find((item) => item.cost === 0) ?? affordable[0];
+}
+
+function stanceFor(style: number): RecallStance {
+  return style % 3 === 0 ? 'hold' : style % 3 === 1 ? 'revise' : 'question';
+}
+
+function playToEnd(initial: LifeRun, style: number): LifeRun {
+  let run = initial;
+  for (let step = 0; step < 40 && run.status === 'active'; step += 1) {
+    if (run.pendingEncounter) {
+      const option = pickOption(run.pendingEncounter.options, style, run.lifePoints);
+      run = submitResponse(run, run.pendingEncounter.instanceId, option.choiceId, GAME_CONTENT);
+    } else if (run.pendingRecall) {
+      run = submitRecall(run, run.pendingRecall.instanceId, stanceFor(style), GAME_CONTENT);
     } else {
-      service.advanceCurrentLife();
-    }
-  }
-  throw new Error('Service life did not finish within the safety limit.');
-}
-
-test('a new reincarnator has clean progression and legacy state', () => {
-  const profile = createInitialProfile(GAME_CONTENT);
-  const benefits = getPermanentBenefits(profile, GAME_CONTENT);
-  assertEqual(profile.version, SAVE_VERSION, 'save version');
-  assertEqual(profile.level, 1, 'initial level');
-  assertEqual(profile.totalExp, 0, 'initial experience');
-  assertEqual(profile.rewardedRunIds.length, 0, 'initial rewarded runs');
-  assertEqual(Object.keys(profile.legacyRanks).length, 0, 'initial legacy ranks');
-  assertEqual(profile.equippedLegacyIds.length, 0, 'initial equipped legacies');
-  assertEqual(profile.pendingBoonIds.length, 0, 'initial next-life boons');
-  assertEqual(benefits.attributePointBonus, 0, 'initial level stat bonus');
-  assertEqual(getLegacySlotCount(profile, GAME_CONTENT), 2, 'initial legacy slots');
-});
-
-test('talent draw is deterministic and contains unique unlocked talents', () => {
-  const profile = createInitialProfile(GAME_CONTENT);
-  const first = drawTalentDraft(profile, 123456, GAME_CONTENT);
-  const second = drawTalentDraft(profile, 123456, GAME_CONTENT);
-  assertEqual(JSON.stringify(first), JSON.stringify(second), 'same seed should produce the same draft');
-  assertEqual(first.candidateIds.length, 3, 'level-one candidate count');
-  assertEqual(new Set(first.candidateIds).size, first.candidateIds.length, 'candidate ids must be unique');
-  assert(first.candidateIds.every((id) => {
-    const talent = GAME_CONTENT.talents.find((item) => item.id === id);
-    return Boolean(talent && talent.unlockLevel <= profile.level);
-  }), 'all candidates should be unlocked');
-});
-
-test('a life begins by asking for a stage focus and applies that choice', () => {
-  const profile = createInitialProfile(GAME_CONTENT);
-  const run = startTestLife(profile, 7, 'stage-start');
-  assertEqual(run.status, 'active', 'new life status');
-  assertEqual(run.turnState, 'awaiting-path', 'new life should wait for a scenario path');
-  assertEqual(run.age, 0, 'new life age');
-  assertEqual(run.history.length, 1, 'birth should be recorded');
-
-  const paths = listAvailablePaths(run, GAME_CONTENT);
-  assert(paths.length >= 1, 'a new life should offer at least one path');
-  const entered = chooseLifePath(run, paths[0].id, GAME_CONTENT);
-  assert(entered.turnState === 'in-scenario' || entered.turnState === 'awaiting-choice', 'entering a path should start a scenario');
-  assert(entered.currentScenario !== undefined, 'an active scenario should be stored');
-});
-
-test('advancement pauses at a persisted key decision', () => {
-  const run = findRunWaitingForDecision();
-  assertEqual(run.turnState, 'awaiting-choice', 'turn should pause for participation');
-  assert(run.pendingDecision !== undefined, 'pending decision should be persisted in the run');
-  const event = getPendingEvent(run, GAME_CONTENT);
-  assert(event.choices !== undefined, 'pending event should contain choices');
-  assert(run.pendingDecision.choiceIds.length >= 2, 'pending decision should expose at least two choices');
-  assert(run.pendingDecision.choiceIds.every((choiceId) => (
-    event.choices?.some((choice) => choice.id === choiceId)
-  )), 'persisted choice ids should belong to the pending event');
-});
-
-test('a new life begins as a living world, not a blank stat sheet', () => {
-  const profile = createInitialProfile(GAME_CONTENT);
-  const run = startTestLife(profile, 11, 'world-birth');
-  assert(run.world.relations.some((item) => item.id === 'parents'), 'birth should include a family relation');
-  assertEqual(run.world.facts.residence?.value, 'hometown', 'birth should place the life in a hometown');
-  assert(run.world.threads.some((item) => item.domain === 'family'), 'birth should start a family thread');
-  assert(Boolean(formatWorldSummary(run.world)), 'the living situation should be describable');
-  assert((run.marks?.length ?? 0) > 0, 'birth should grant named marks instead of allocated numbers');
-});
-
-test('talents grant named auras rather than invisible numbers', () => {
-  const profile = createInitialProfile(GAME_CONTENT);
-  const draft = drawTalentDraft(profile, 11, GAME_CONTENT);
-  const sturdy = draft.candidateIds.includes('strong_bones') ? 'strong_bones' : draft.candidateIds[0];
-  const second = draft.candidateIds.find((id) => id !== sturdy) ?? draft.candidateIds[1];
-  const run = startLife(profile, draft, [sturdy, second], 'mark-birth', GAME_CONTENT);
-  assert((run.marks?.length ?? 0) >= 1, 'selected talents should leave marks');
-  if (sturdy === 'strong_bones') {
-    assert(markIntensity(run.marks, 'sturdy') >= 1, 'strong bones should become a body aura');
-  }
-});
-
-test('marks tilt the odds of later outcomes', () => {
-  const luckyWeight = markOutcomeMultiplier(
-    [{ id: 'lucky', intensity: 3 }],
-    { id: 'kind', weight: 1, text: '', effects: { wealth: 2 } },
-    GAME_CONTENT.marks,
-  );
-  const wornWeight = markOutcomeMultiplier(
-    [{ id: 'wear', intensity: 3 }],
-    { id: 'harsh', weight: 1, text: '', effects: { health: -2 } },
-    GAME_CONTENT.marks,
-  );
-  assert(luckyWeight > 1, 'fortune should make kinder outcomes more likely');
-  assert(wornWeight > 1, 'exhaustion should make harsher body outcomes more likely');
-});
-
-test('a choice mutates world state rather than only changing stats', () => {
-  const profile = createInitialProfile(GAME_CONTENT);
-  const started = startTestLife(profile, 901, 'world-choice');
-  const focused = chooseLifePath(started, listAvailablePaths(started, GAME_CONTENT)[0].id, GAME_CONTENT);
-  const decisionRun: LifeRun = {
-    ...focused,
-    age: 8,
-    turnState: 'awaiting-choice',
-    pendingDecision: {
-      age: 8,
-      eventId: 'broken_window',
-      choiceIds: ['confess', 'hide'],
-      automaticEffects: {},
-      rerolledEventIds: [],
-    },
-  };
-  const resolved = resolveEventChoice(decisionRun, 'confess', GAME_CONTENT);
-  assert(resolved.world.relations.some((item) => item.id === 'neighbor'), 'confessing should create a neighbor relation');
-  assert(resolved.history[resolved.history.length - 1].worldChanges?.length, 'history should record world fragments');
-  assert(resolved.tags.includes('takes_responsibility'), 'route tags should still be applied');
-});
-
-test('two active life strands can couple into a new event', () => {
-  const profile = createInitialProfile(GAME_CONTENT);
-  const focused = startTestLife(profile, 44, 'world-coupling');
-  const coupled: LifeRun = {
-    ...focused,
-    age: 34,
-    tags: uniqueTags([...focused.tags, 'has_career', 'made_a_home']),
-    world: {
-      ...focused.world,
-      facts: {
-        ...focused.world.facts,
-        occupation: { value: 'employed', sinceAge: 22 },
-        partnership: { value: 'home', sinceAge: 28 },
-      },
-      relations: [
-        ...focused.world.relations,
-        {
-          id: 'partner',
-          kind: 'partner',
-          label: '伴侣',
-          closeness: 7,
-          strain: 3,
-          sinceAge: 28,
-          lastTouchedAge: 33,
-        },
-      ],
-      threads: [
-        ...focused.world.threads,
-        {
-          id: 'career_life',
-          domain: 'career',
-          label: '谋生',
-          intensity: 6,
-          sinceAge: 22,
-          lastEventAge: 32,
-        },
-        {
-          id: 'family_own',
-          domain: 'family',
-          label: '自己的家',
-          intensity: 6,
-          sinceAge: 28,
-          lastEventAge: 33,
-        },
-      ],
-    },
-  };
-  const eligible = listEligibleEvents(coupled, 34, GAME_CONTENT);
-  const clash = eligible.find((event) => event.id === 'work_home_clash');
-  assert(clash !== undefined, 'career plus family should unlock a cross-strand event');
-  const clashWeight = getEventSelectionWeight(clash, coupled, GAME_CONTENT);
-  const ordinary = GAME_CONTENT.events.find((event) => event.id === 'adult_year');
-  assert(ordinary !== undefined, 'ordinary adult year should exist');
-  const ordinaryWeight = getEventSelectionWeight(ordinary, coupled, GAME_CONTENT);
-  assert(clashWeight > ordinaryWeight, 'coupled pressure should outweigh an ordinary year');
-  const pressures = computeWorldPressures(coupled.world, coupled.stats, coupled.age);
-  assert(pressures.career >= 4 && pressures.family >= 4, 'both strands should be under pressure');
-});
-
-test('neglected relations drift even when other years occupy the foreground', () => {
-  const profile = createInitialProfile(GAME_CONTENT);
-  const focused = startTestLife(profile, 18, 'world-drift');
-  const withFriend: LifeRun = {
-    ...focused,
-    age: 22,
-    world: {
-      ...focused.world,
-      relations: [
-        ...focused.world.relations,
-        {
-          id: 'friend',
-          kind: 'friend',
-          label: '故人',
-          closeness: 6,
-          strain: 0,
-          sinceAge: 14,
-          lastTouchedAge: 14,
-        },
-      ],
-    },
-  };
-  const drifted = tickLifeWorld(withFriend.world, withFriend.stats, 22);
-  const friend = drifted.relations.find((item) => item.id === 'friend');
-  assert(friend !== undefined, 'the friend relation should still exist');
-  assert(friend.closeness < 6, 'a neglected friend should grow more distant');
-});
-
-test('a commerce chapter is played in turns instead of years', () => {
-  const profile = createInitialProfile(GAME_CONTENT);
-  let run = startTestLife(profile, 44, 'commerce-turns');
-  run = { ...run, age: 20, completedScenarioIds: ['childhood'] };
-  const entered = chooseLifePath(run, 'commerce', GAME_CONTENT);
-  assert(entered.currentScenario?.scenarioId === 'commerce', 'commerce should become the active chapter');
-  assert(entered.turnState === 'in-scenario' || entered.turnState === 'awaiting-choice', 'the chapter should wait for a turn');
-  if (entered.turnState === 'in-scenario') {
-    const purseBefore = entered.currentScenario?.resources.purse ?? 0;
-    const acted = resolveScenarioAction(entered, 'hold', GAME_CONTENT);
-    const purseAfter = acted.currentScenario?.resources.purse ?? purseBefore + 1;
-    assert(purseAfter >= purseBefore, 'holding a season should not lose the purse');
-  }
-});
-
-test('history mode walks a figure chapter by chapter', () => {
-  const profile = createInitialProfile(GAME_CONTENT);
-  const run = startHistoryLife(profile, 'kongzi', 'history-kongzi', GAME_CONTENT);
-  assertEqual(run.playMode, 'history', 'history mode');
-  assertEqual(run.figureId, 'kongzi', 'figure id');
-  const paths = listAvailablePaths(run, GAME_CONTENT);
-  assertEqual(paths[0]?.title, '问礼', 'the first chapter should use the figure title');
-  const entered = chooseLifePath(run, paths[0].id, GAME_CONTENT);
-  assertEqual(entered.currentScenario?.title, '问礼', 'entered chapter title');
-});
-
-test('settlement grants experience once and persists three diverse offers', () => {
-  const profile = createInitialProfile(GAME_CONTENT);
-  const ended = finishLifeWithFirstChoices(startTestLife(profile, 222, 'settlement-test'));
-  const prepared = prepareSettlement(profile, ended, GAME_CONTENT);
-  assertEqual(prepared.run.status, 'reward-pending', 'settlement should wait for reward selection');
-  assert(prepared.settlement.earnedExp > 0, 'settlement should grant positive experience');
-  assertEqual(prepared.profile.totalExp, prepared.settlement.earnedExp, 'experience should be persisted');
-  assertEqual(prepared.settlement.rewardOfferIds.length, 3, 'exactly three rewards should be offered');
-  assertEqual(new Set(prepared.settlement.rewardOfferIds).size, 3, 'reward offers should be unique');
-  const categories = new Set(prepared.settlement.rewardOfferIds.map((id) => (
-    GAME_CONTENT.legacies.find((legacy) => legacy.id === id)?.category
-  )));
-  assertEqual(categories.size, 3, 'the offer should contain three reward categories when available');
-
-  const repeated = prepareSettlement(prepared.profile, prepared.run, GAME_CONTENT);
-  assertEqual(repeated.newlyGranted, false, 'second preparation should not grant again');
-  assertEqual(repeated.profile.totalExp, prepared.profile.totalExp, 'repeat settlement must preserve experience');
-});
-
-test('one offered legacy can be claimed exactly once', () => {
-  const profile = createInitialProfile(GAME_CONTENT);
-  const ended = finishLifeWithFirstChoices(startTestLife(profile, 333, 'reward-claim-test'));
-  const prepared = prepareSettlement(profile, ended, GAME_CONTENT);
-  const rewardId = prepared.settlement.rewardOfferIds[0];
-  assert(rewardId !== undefined, 'settlement should offer a reward');
-  const claimed = claimLegacyReward(prepared.profile, prepared.run, rewardId, GAME_CONTENT);
-  assertEqual(claimed.run.status, 'settled', 'claim should finish settlement');
-  assertEqual(claimed.run.settlement?.selectedRewardId, rewardId, 'selected reward should be recorded');
-  assert(claimed.profile.rewardedRunIds.includes(ended.id), 'rewarded run id should be recorded');
-  const reward = GAME_CONTENT.legacies.find((legacy) => legacy.id === rewardId);
-  assert(reward !== undefined, 'claimed reward should exist');
-  if (reward.persistence === 'permanent') {
-    assertEqual(claimed.profile.legacyRanks[rewardId], 1, 'permanent reward should gain a rank');
-  } else {
-    assert(claimed.profile.pendingBoonIds.includes(rewardId), 'boon should queue for the next life');
-  }
-
-  const repeated = claimLegacyReward(claimed.profile, claimed.run, rewardId, GAME_CONTENT);
-  assertEqual(repeated.newlyClaimed, false, 'claiming the selected reward twice should be idempotent');
-  const otherRewardId = prepared.settlement.rewardOfferIds.find((id) => id !== rewardId);
-  assert(otherRewardId !== undefined, 'another offered reward should exist');
-  assertThrows(
-    () => claimLegacyReward(claimed.profile, claimed.run, otherRewardId, GAME_CONTENT),
-    'a second, different reward must be rejected',
-  );
-});
-
-test('service reload preserves a pending event without rerolling it', () => {
-  const store = new MemoryStore();
-  let seed = 400;
-  const service = new GameService(store, () => seed += 1, GAME_CONTENT);
-  const draft = service.createTalentDraft();
-  service.startNewLife(
-    draft,
-    draft.candidateIds.slice(0, draft.requiredSelectionCount),
-  );
-
-  for (let step = 0; step < 200; step += 1) {
-    const run = service.getCurrentRun();
-    assert(run?.status === 'active', 'life should still be active before its first decision');
-    if (run.turnState === 'awaiting-choice') {
       break;
     }
-    if (run.turnState === 'awaiting-path' || run.turnState === 'awaiting-focus') {
-      const paths = listAvailablePaths(run, service.getContent());
-      if (paths[0]) {
-        service.chooseCurrentPath(paths[0].id);
-      } else {
-        chooseServiceFocus(service);
-      }
-    } else if (run.turnState === 'in-scenario') {
-      const actionId = run.currentScenario?.actionIds[0];
-      assert(actionId !== undefined, 'service scenario should offer an action');
-      service.resolveCurrentScenarioAction(actionId);
-    } else if (run.turnState === 'scenario-summary') {
-      service.continueCurrentScenario();
-    } else {
-      service.advanceCurrentLife();
-    }
   }
-  const pendingBefore = service.getCurrentRun()?.pendingDecision;
-  const rngBefore = service.getCurrentRun()?.rngState;
-  assert(pendingBefore !== undefined, 'service should reach a pending decision');
-  const reloaded = new GameService(store, () => seed += 1, GAME_CONTENT);
-  const pendingAfter = reloaded.getCurrentRun()?.pendingDecision;
-  assert(pendingAfter !== undefined, 'reloaded service should retain the pending decision');
-  assertEqual(
-    JSON.stringify({
-      age: pendingAfter.age,
-      eventId: pendingAfter.eventId,
-      choiceIds: pendingAfter.choiceIds,
-      rerolledEventIds: pendingAfter.rerolledEventIds,
-      sourceChoiceId: pendingAfter.sourceChoiceId,
-    }),
-    JSON.stringify({
-      age: pendingBefore.age,
-      eventId: pendingBefore.eventId,
-      choiceIds: pendingBefore.choiceIds,
-      rerolledEventIds: pendingBefore.rerolledEventIds,
-      sourceChoiceId: pendingBefore.sourceChoiceId,
-    }),
-    'reload should preserve the exact event and offered choices',
-  );
-  assertEqual(reloaded.getCurrentRun()?.rngState, rngBefore, 'reload must not advance the random state');
-});
+  return run;
+}
 
-test('service reload preserves reward offers and never duplicates settlement', () => {
-  const store = new MemoryStore();
-  let seed = 700;
-  const service = new GameService(store, () => seed += 1, GAME_CONTENT);
-  const draft = service.createTalentDraft();
-  service.startNewLife(
-    draft,
-    draft.candidateIds.slice(0, draft.requiredSelectionCount),
-  );
-  const pendingReward = finishServiceLife(service);
-  assertEqual(pendingReward.status, 'reward-pending', 'service should stop at reward selection');
-  const expAfterSettlement = service.getProfile().totalExp;
-  const offersBefore = JSON.stringify(pendingReward.settlement?.rewardOfferIds);
+function startSeed(seed: number, carry: string[] = [], runId = `life-${seed}`): LifeRun {
+  return startLife(createInitialProfile(), seed, runId, carry, GAME_CONTENT);
+}
 
-  const reloaded = new GameService(store, () => seed += 1, GAME_CONTENT);
-  assertEqual(reloaded.getProfile().totalExp, expAfterSettlement, 'reload must not duplicate experience');
-  assertEqual(JSON.stringify(reloaded.getCurrentRun()?.settlement?.rewardOfferIds), offersBefore, 'offers must persist');
-  const rewardId = reloaded.getCurrentRun()?.settlement?.rewardOfferIds[0];
-  assert(rewardId !== undefined, 'a persisted reward should be claimable');
-  reloaded.claimCurrentReward(rewardId);
-
-  const afterClaimReload = new GameService(store, () => seed += 1, GAME_CONTENT);
-  assertEqual(afterClaimReload.getCurrentRun()?.status, 'settled', 'claimed run should remain settled');
-  assertEqual(afterClaimReload.getProfile().totalExp, expAfterSettlement, 'claim reload must preserve experience');
-  assertEqual(afterClaimReload.getCurrentRun()?.settlement?.selectedRewardId, rewardId, 'claim should persist');
-});
-
-test('legacy slots are enforced and equipped ranks aggregate into run capabilities', () => {
-  const store = new MemoryStore();
-  const profile = createInitialProfile(GAME_CONTENT);
-  store.value = {
-    version: SAVE_VERSION,
-    profile: {
-      ...profile,
-      legacyRanks: {
-        memory_of_abundance: 2,
-        turn_back_time: 1,
-        book_of_questions: 1,
-      },
-    },
-    currentRun: null,
-  };
-  const service = new GameService(store, () => 1, GAME_CONTENT);
-  service.toggleEquippedLegacy('memory_of_abundance');
-  service.toggleEquippedLegacy('turn_back_time');
-  assertThrows(
-    () => service.toggleEquippedLegacy('book_of_questions'),
-    'equipping beyond the available slots should fail',
-  );
-  const capabilities = getRunCapabilities(service.getProfile(), GAME_CONTENT);
-  assertEqual(service.getProfile().equippedLegacyIds.length, 2, 'equipped legacy count');
-  assertEqual(capabilities.startingPointBonus, 2, 'ranked starting-point effects should stack');
-  assertEqual(capabilities.eventRerolls, 1, 'equipped fate effect should be available');
-});
-
-test('version-one saves migrate without losing the current life', () => {
-  const migrated = migrateGameSave({
-    version: 1,
-    profile: {
-      version: 1,
-      totalExp: 45,
-      level: 1,
-      discoveredEndingIds: ['ordinary_life'],
-      settledRunIds: ['old-settled-run'],
-    },
-    currentRun: {
-      id: 'legacy-active-run',
-      seed: 17,
-      rngState: 23,
-      profileLevelAtStart: 1,
-      status: 'active',
-      age: 10,
-      familyId: 'ordinary_home',
-      talentIds: ['bookish'],
-      allocation: { health: 3, intellect: 3, charm: 2, wealth: 2 },
-      stats: { health: 9, intellect: 7, charm: 6, wealth: 5 },
-      tags: ['started_school'],
-      history: [{
-        age: 10,
-        eventId: 'ordinary_school_year',
-        text: '旧存档中的这一年。',
-        effects: { intellect: 1 },
-        tagsAdded: [],
-      }],
-    },
-  }, GAME_CONTENT);
-  assert(migrated !== null, 'valid version-one save should migrate');
-  assertEqual(migrated.version, SAVE_VERSION, 'migrated save version');
-  assertEqual(migrated.profile.totalExp, 45, 'experience should survive migration');
-  assertEqual(migrated.profile.rewardedRunIds.length, 0, 'new reward tracking should be initialized');
-  assertEqual(migrated.currentRun?.id, 'legacy-active-run', 'active run id should survive migration');
-  assertEqual(migrated.currentRun?.age, 10, 'active run age should survive migration');
-  assertEqual(migrated.currentRun?.stats.intellect, 7, 'active run stats should survive migration');
-  assertEqual(migrated.currentRun?.history.length, 1, 'active run history should survive migration');
-  assertEqual(migrated.currentRun?.turnState, 'awaiting-focus', 'legacy run should enter the new participation flow');
-});
-
-test('higher levels still expand initial choices alongside the legacy system', () => {
-  const highLevelProfile = normalizeProfile({
-    ...createInitialProfile(GAME_CONTENT),
-    totalExp: 650,
-  }, GAME_CONTENT);
-  const benefits = getPermanentBenefits(highLevelProfile, GAME_CONTENT);
-  const draft = drawTalentDraft(highLevelProfile, 99, GAME_CONTENT);
-  assertEqual(highLevelProfile.level, 6, 'profile level at 650 experience');
-  assertEqual(benefits.attributePointBonus, 1, 'cumulative level stat bonus');
-  assertEqual(benefits.talentCandidateBonus, 1, 'cumulative candidate bonus');
-  assertEqual(benefits.legacySlotBonus, 1, 'cumulative slot bonus');
-  assertEqual(draft.candidateIds.length, 4, 'level-six candidate count');
-});
-
-test('all configured content passes structural validation', () => {
+test('content: 24 templates, free options, consequences, and references', () => {
   const errors = validateGameContent(GAME_CONTENT);
-  assertEqual(errors.length, 0, `content validation errors: ${errors.join(' | ')}`);
+  assertEqual(errors.join('\n'), '', 'game content should be valid');
+  assertEqual(GAME_CONTENT.encounters.length, 24, 'there should be 24 encounter templates');
 });
 
-test('presentation keeps every pending choice and supports four-way comparison', () => {
-  const event = GAME_CONTENT.events.find((item) => item.id === 'first_job');
-  assert(Boolean(event && event.choices && event.choices.length >= 4), 'first_job should offer four choices');
-  const choices = event!.choices!;
-  const waiting = findRunWaitingForDecision();
-  const run: LifeRun = {
-    ...waiting,
-    pendingDecision: {
-      age: waiting.age,
-      eventId: 'first_job',
-      choiceIds: choices.map((choice) => choice.id),
-      automaticEffects: {},
-      rerolledEventIds: [],
-    },
-  };
-  const view = presentChoices(run, GAME_CONTENT, null, false);
-  assertEqual(view.choices.length, choices.length, 'choice presenter should not drop options');
-  for (const choice of choices) {
-    assert(view.choices.some((item) => item.id === choice.id), `missing choice ${choice.id}`);
-  }
+test('random: same seed yields the same sequence', () => {
+  const first = nextRandom(normalizeSeed(42));
+  const second = nextRandom(normalizeSeed(42));
+  assertEqual(first.value, second.value, 'random values should match');
+  const items = [{ id: 'a', w: 1 }, { id: 'b', w: 3 }, { id: 'c', w: 2 }];
+  const left = pickWeighted(items, 99, (item) => item.w);
+  const right = pickWeighted(items, 99, (item) => item.w);
+  assertEqual(left.item.id, right.item.id, 'weighted picks should match');
 });
 
-test('unaffordable scenario actions stay visible and explain the missing cost', () => {
-  const commerce = GAME_CONTENT.scenarios.find((item) => item.id === 'commerce');
-  assert(commerce !== undefined, 'commerce scenario should exist');
-  const run = startTestLife(createInitialProfile(GAME_CONTENT), 7, 'ui-afford');
-  const sceneRun: LifeRun = {
-    ...run,
-    turnState: 'in-scenario',
-    currentScenario: {
-      scenarioId: commerce.id,
-      title: commerce.title,
-      kind: commerce.kind,
-      icon: commerce.icon,
-      turn: 0,
-      maxTurns: commerce.turns,
-      years: commerce.years,
-      resources: { purse: 0, venture: 0 },
-      resourceLabels: commerce.resourceLabels,
-      log: [commerce.summary],
-      actionIds: ['hold'],
-      startedAtAge: run.age,
-    },
-  };
-  const view = presentScenario(sceneRun, GAME_CONTENT);
-  const invest = view.actions.find((item) => item.id === 'invest');
-  const hold = view.actions.find((item) => item.id === 'hold');
-  const expand = view.actions.find((item) => item.id === 'expand');
-  assert(hold?.enabled, 'free action should remain enabled');
-  assert(invest && !invest.enabled, 'costly action should be visible but disabled');
-  assert(Boolean(invest?.disabledReason), 'disabled action should explain the missing resource');
-  assert(expand && !expand.enabled, 'second costly action should also stay visible');
-});
-
-test('foresight stays behind an explicit reveal and respects capability', () => {
-  const waiting = findRunWaitingForDecision();
-  const none = presentChoices(waiting, GAME_CONTENT, waiting.pendingDecision?.choiceIds[0] ?? null, true);
-  assertEqual(none.canForesight, false, 'default lives should not have foresight');
-  assert(none.choices.every((choice) => !choice.foresight), 'foresight text should stay hidden without permission');
-  const ranged: LifeRun = {
-    ...waiting,
-    capabilities: {
-      ...waiting.capabilities,
-      choiceForesight: 'range',
-    },
-  };
-  const closed = presentChoices(ranged, GAME_CONTENT, null, false);
-  assert(closed.canForesight, 'range foresight should expose the independent control');
-  assert(closed.choices.every((choice) => !choice.foresight), 'foresight remains closed until revealed');
-  const opened = presentChoices(ranged, GAME_CONTENT, null, true);
-  assert(opened.choices.some((choice) => Boolean(choice.foresight)), 'revealed foresight should attach possible outcomes');
-});
-
-test('long story text is truncated with an expand payload', () => {
-  const full = '这是一段故意写得很长的人生叙述，用来确认主界面只展示两到三行，并且把完整原文留给展开入口，不把故事截断后丢掉。';
-  const story = presentStoryText(full);
-  assert(story.expandable, 'long text should be expandable');
-  assert(story.preview.length < story.full.length, 'preview should be shorter than the full record');
-  assertEqual(story.full, full, 'full text should keep the original wording');
-  const short = presentStoryText('短句。');
-  assertEqual(short.expandable, false, 'short text should not require expansion');
-});
-
-test('state diffs capture resource and mark changes', () => {
-  const diff = presentStateDiff(
-    { resources: { purse: 3 }, marks: [{ id: 'means', intensity: 1 }] },
-    {
-      resources: { purse: 1, venture: 2 },
-      marks: [{ id: 'means', intensity: 2 }],
-      resourceLabels: { purse: '本钱', venture: '生意' },
-    },
-    GAME_CONTENT,
-  );
-  const purse = diff.resources.find((item) => item.key === 'purse');
-  const venture = diff.resources.find((item) => item.key === 'venture');
-  const means = diff.marks.find((item) => item.id === 'means');
-  assertEqual(purse?.delta, -2, 'purse should fall by two');
-  assertEqual(venture?.delta, 2, 'new venture should appear as a gain');
-  assertEqual(means?.delta, 1, 'means mark should intensify');
-});
-
-test('all eight scenario kinds map to named cartoon scenes', () => {
-  const kinds: ScenarioKind[] = ['childhood', 'studies', 'commerce', 'craft', 'journey', 'hearth', 'service', 'dusk'];
-  const names = ['庭院', '书房', '集市', '工坊', '旅途', '居所', '议事厅', '暮年庭院'];
-  kinds.forEach((kind, index) => {
-    assertEqual(SCENE_KIND_NAMES[kind], names[index], `${kind} scene name`);
-    assertEqual(SCENE_VISUALS[kind].name, names[index], `${kind} visual name`);
-    assertEqual(SCENE_VISUALS[kind].kind, kind, `${kind} visual identity`);
-  });
-});
-
-test('one thousand deterministic lives finish without dead ends', () => {
-  let totalDecisions = 0;
-  let laterLifeDecisions = 0;
-  let reachedLaterYears = 0;
-  for (let seed = 1; seed <= 1000; seed += 1) {
-    const profile = createInitialProfile(GAME_CONTENT);
-    const ended = finishLifeWithFirstChoices(startTestLife(profile, seed, `coverage-${seed}`));
-    assert(ended.age >= 1 && ended.age <= 100, `seed ${seed} should end in the supported age range`);
-    assert(Boolean(ended.endingId), `seed ${seed} should resolve an ending`);
-    const choices = ended.history.filter((entry) => Boolean(entry.choiceId));
-    totalDecisions += choices.length;
-    laterLifeDecisions += choices.filter((entry) => entry.age >= 50).length;
-    if (ended.age >= 55 || ended.completedScenarioIds.includes('dusk')) {
-      reachedLaterYears += 1;
+test('experiences change later responses and keep real sources', () => {
+  let laterConfessed: LifeRun | null = null;
+  let laterHidden: LifeRun | null = null;
+  for (let seed = 1; seed <= 400; seed += 1) {
+    const opening = startSeed(seed, [], `src-${seed}`);
+    if (opening.pendingEncounter?.templateId !== 'trust_broken_cup') {
+      continue;
+    }
+    const confessed = submitResponse(clone(opening), opening.pendingEncounter.instanceId, 'confess', GAME_CONTENT);
+    const hidden = submitResponse(clone(opening), opening.pendingEncounter.instanceId, 'hide', GAME_CONTENT);
+    const left = playUntilTemplate(confessed, 'trust_friend_trouble');
+    const right = playUntilTemplate(hidden, 'trust_friend_trouble');
+    if (left && right) {
+      laterConfessed = left;
+      laterHidden = right;
+      break;
     }
   }
-  assert(totalDecisions >= 1000, 'the simulation should contain at least one meaningful choice per life on average');
-  assert(laterLifeDecisions > 0, 'some meaningful choices should occur after age fifty');
-  assert(reachedLaterYears > 0, 'some lives should reach later years or dusk');
+  assert(laterConfessed && laterHidden, 'should find a seed where both responses later face the same friend-trouble encounter');
+  const confessTell = laterConfessed.pendingEncounter?.options.find((item) => item.choiceId === 'tell');
+  const hideTell = laterHidden.pendingEncounter?.options.find((item) => item.choiceId === 'tell');
+  assert(confessTell && hideTell, 'both lives should still offer telling adults');
+  assert(confessTell.cost === 0, 'a life that already spoke up should not pay to tell again');
+  assert(hideTell.cost >= 1, 'a life that hid should pay 1 point to break the habit');
+  assert(Boolean(hideTell.supportReason), 'the paid option should name a real past');
+  const source = getCausality(laterHidden, createInitialProfile(), laterHidden.fragments[0].id);
+  assert(source, 'the evoked past should be a real fragment');
+  assert(source?.people.some((person) => person.id === 'parents'), 'the childhood fragment should keep the real person');
 });
 
-let passed = 0;
-for (const current of tests) {
-  try {
-    current.run();
-    passed += 1;
-    console.log(`PASS ${current.name}`);
-  } catch (error) {
-    console.error(`FAIL ${current.name}`);
-    throw error;
+test('different responses produce different later consequences', () => {
+  const confessed = findOpeningChoice('trust_broken_cup', 'confess');
+  const hidden = findOpeningChoice('trust_broken_cup', 'hide');
+  assert(confessed.tags.includes('truth-punished'), 'confessing should leave a punished-for-truth mark');
+  assert(hidden.tags.includes('hid-and-safe'), 'hiding should leave a hid-and-safe mark');
+  const parentConfessed = confessed.world.relations.find((item) => item.id === 'parents');
+  const parentHidden = hidden.world.relations.find((item) => item.id === 'parents');
+  assert(parentConfessed && parentHidden, 'both lives keep family');
+  assert(parentConfessed.closeness !== parentHidden.closeness || parentConfessed.strain !== parentHidden.strain, 'family relations should diverge');
+});
+
+test('understandings can grow without overwriting old facts', () => {
+  const started = findOpeningChoice('trust_broken_cup', 'confess');
+  let run = playUntilRecall(started);
+  assert(run.pendingRecall, 'a life should recall after three responses');
+  const before = run.fragments.map((item) => item.whatHappened);
+  const facts = run.fragments.map((item) => item.id);
+  run = submitRecall(run, run.pendingRecall!.instanceId, 'revise', GAME_CONTENT);
+  const revised = run.understandings.filter((item) => item.createdInRunId === run.id);
+  assert(revised.length >= 1, 'revise should create an understanding version');
+  assertEqual(revised[revised.length - 1].stance, 'revise', 'the new version should be a revision');
+  assertEqual(run.fragments.filter((item) => item.runId === run.id).map((item) => item.whatHappened).join('|'), before.join('|'), 'old facts stay');
+  assertEqual(run.fragments.filter((item) => item.runId === run.id).map((item) => item.id).join('|'), facts.join('|'), 'fragment identities stay');
+  const later = playUntilTemplate(run, 'trust_share_blame') ?? playUntilTemplate(run, 'trust_workplace');
+  if (later?.pendingEncounter) {
+    const share = later.pendingEncounter.options.find((item) => item.choiceId === 'share' || item.choiceId === 'admit');
+    assert(share, 'later trust encounters should still be reachable');
+    assert(share.cost === 0 || share.supportReason, 'revised understanding should affect later responses or name why they cost');
+  }
+});
+
+test('life points: zero can continue, overspend is rejected, repeats are idempotent', () => {
+  let run: LifeRun | null = null;
+  for (let seed = 1; seed <= 500; seed += 1) {
+    const drained = drainToZero(startSeed(seed, [], `zero-${seed}`));
+    if (drained.lifePoints === 0 && (drained.pendingEncounter || drained.pendingRecall)) {
+      run = drained;
+      break;
+    }
+  }
+  assert(run, 'should reach a moment with zero life points');
+  if (run.pendingEncounter) {
+    const free = run.pendingEncounter.options.filter((item) => item.cost === 0 && item.enabled);
+    assert(free.length >= 2, 'zero-point lives still have free options');
+    const paid = run.pendingEncounter.options.find((item) => item.cost > run.lifePoints);
+    if (paid) {
+      assertEqual(paid.enabled, false, 'unaffordable options are disabled');
+      assertThrows(() => submitResponse(run as LifeRun, run!.pendingEncounter!.instanceId, paid.choiceId, GAME_CONTENT), 'overspend must throw');
+      assertEqual(run.lifePoints, 0, 'failed overspend does not spend points');
+    }
+    const instanceId = run.pendingEncounter.instanceId;
+    const choiceId = free[0].choiceId;
+    const next = submitResponse(run, instanceId, choiceId, GAME_CONTENT);
+    const again = submitResponse(next, instanceId, choiceId, GAME_CONTENT);
+    assertEqual(again.lifePoints, next.lifePoints, 'repeat submit does not spend again');
+    assertEqual(again.fragments.length, next.fragments.length, 'repeat submit does not add fragments');
+  } else {
+    assert(run.pendingRecall, 'zero points can still reach a recall');
+    const next = submitRecall(run, run.pendingRecall.instanceId, 'question', GAME_CONTENT);
+    assert(next.lifePoints >= run.lifePoints, 'recall still works at zero points');
+  }
+
+  let recalling = playUntilRecall(startSeed(11));
+  assert(recalling.pendingRecall, 'should reach a recall');
+  const recallId = recalling.pendingRecall!.instanceId;
+  const points = recalling.lifePoints;
+  recalling = submitRecall(recalling, recallId, 'hold', GAME_CONTENT);
+  const gained = recalling.lifePoints;
+  assert(gained >= points, 'recall grants a point up to the cap');
+  const twice = submitRecall(recalling, recallId, 'hold', GAME_CONTENT);
+  assertEqual(twice.lifePoints, gained, 'repeat recall does not grant again');
+  assertEqual(twice.recallCount, recalling.recallCount, 'repeat recall does not count twice');
+});
+
+test('archive retry does not duplicate discoveries', () => {
+  const ended = playToEnd(startSeed(21), 0);
+  assert(ended.status === 'awaiting-archive' || ended.status === 'settled', 'a simulated life should close');
+  const first = completeArchive(createInitialProfile(), ended);
+  const second = completeArchive(first.profile, first.run);
+  assertEqual(second.profile.archivedRunIds.length, 1, 'one life is archived once');
+  const keys = second.profile.discoveries.map((item) => item.contentKey).sort().join(',');
+  const again = second.profile.discoveries.map((item) => item.contentKey).sort().join(',');
+  assertEqual(keys, again, 'discovery keys stay stable');
+  assertEqual(second.profile.fragments.filter((item) => item.runId === ended.id).length, ended.fragments.filter((item) => item.runId === ended.id).length, 'fragments are not copied twice');
+});
+
+test('causality resolves, pending reload is stable, merged sources stay distinct', () => {
+  const run = playUntilRecall(findOpeningChoice('trust_broken_cup', 'confess'));
+  assertEqual(causalityHasCycle(run, createInitialProfile()), false, 'fragment graph should not cycle');
+  for (const fragment of run.fragments.filter((item) => item.runId === run.id)) {
+    const record = getCausality(run, createInitialProfile(), fragment.id);
+    assert(record, `fragment ${fragment.id} should be readable`);
+    for (const person of record!.people) {
+      assert(fragment.people.some((item) => item.relationId === person.id), 'causality people match the fragment');
+    }
+  }
+  const snapshot = parseGameSave({
+    version: SAVE_VERSION,
+    profile: createInitialProfile(),
+    currentRun: clone(run),
+  });
+  assert(snapshot?.currentRun, 'pending recall should reload');
+  assertEqual(snapshot!.currentRun!.pendingRecall?.instanceId, run.pendingRecall?.instanceId, 'reload keeps recall id');
+  assertEqual(snapshot!.currentRun!.rngState, run.rngState, 'reload keeps rng');
+  assertEqual(snapshot!.currentRun!.lifePoints, run.lifePoints, 'reload keeps points');
+
+  const ended = playToEnd(run, 1);
+  const archived = completeArchive(createInitialProfile(), ended);
+  const secondLife = playToEnd(startLife(archived.profile, 88, 'life-b', archived.profile.understandings.slice(0, 1).map((item) => item.id), GAME_CONTENT), 2);
+  const merged = completeArchive(archived.profile, secondLife);
+  for (const discovery of merged.profile.discoveries) {
+    const runs = new Set(discovery.sources.map((item) => item.runId));
+    if (runs.size > 1) {
+      const peopleByRun = new Map<string, string>();
+      for (const source of discovery.sources) {
+        peopleByRun.set(`${source.runId}:${source.fragmentId}`, source.personLabels.join(','));
+      }
+      assert(peopleByRun.size === discovery.sources.length, 'merged discoveries keep per-life source identities');
+    }
+  }
+});
+
+test('three lives can carry understanding without a level gate', () => {
+  let profile = createInitialProfile();
+  const statements: string[] = [];
+  for (let index = 0; index < 3; index += 1) {
+    const carry = profile.understandings.slice(0, 2).map((item) => item.id);
+    let run = startLife(profile, 30 + index * 17, `chain-${index}`, carry, GAME_CONTENT);
+    if (carry.length > 0) {
+      assert(run.carriedUnderstandingIds.length === carry.length, 'carried ids are accepted');
+      assert(run.lifePoints === 2, 'carrying understanding does not raise life points');
+      assert(run.tags.some((tag) => tag.startsWith('carried:')), 'carried understanding is visible to later responses');
+    }
+    run = playToEnd(run, index);
+    const archived = completeArchive(profile, run);
+    profile = archived.profile;
+    if (run.understandings[0]) {
+      statements.push(run.understandings[run.understandings.length - 1].statement);
+    }
+  }
+  assertEqual(profile.archivedRunIds.length, 3, 'three lives archive');
+  assert(profile.understandings.length > 0, 'understandings accumulate');
+  assert(statements.length > 0, 'each life can form meaning without grinding a level');
+});
+
+test('1000 deterministic lives close without dead ends or repeated templates', () => {
+  let recalls = 0;
+  for (let seed = 1; seed <= 1000; seed += 1) {
+    const run = playToEnd(startSeed(seed, [], `sim-${seed}`), seed);
+    assert(run.status === 'awaiting-archive', `seed ${seed} should close for archive`);
+    const own = run.fragments.filter((item) => item.runId === run.id);
+    assert(own.length >= 6 && own.length <= 8, `seed ${seed} should have 6-8 encounters, got ${own.length}`);
+    assertEqual(new Set(own.map((item) => item.templateId)).size, own.length, `seed ${seed} repeated a template`);
+    assert(run.recallCount === 2, `seed ${seed} should recall twice`);
+    assert(run.closing, `seed ${seed} needs a closing`);
+    if (run.scheduled.some((item) => !run.usedTemplateIds.includes(item.templateId))) {
+      assert((run.closing?.unfulfilled.length ?? 0) > 0, `seed ${seed} must explain unfulfilled consequences`);
+    }
+    recalls += run.recallCount;
+  }
+  assert(recalls === 2000, 'every life recalls twice');
+});
+
+test('obsolete save keys are cleared, other data and valid v3 remain', () => {
+  const store = new MemoryStore();
+  store.setItem('reincarnation-life.save.v1', '{"old":1}');
+  store.setItem('reincarnation-life.save.v2', '{"old":2}');
+  store.setItem('reincarnation-life.save.backup', '{"old":3}');
+  store.setItem('other-app.save', 'keep-me');
+  const first = new GameService(store, () => 11);
+  for (const key of OBSOLETE_SAVE_KEYS) {
+    assertEqual(store.getItem(key), null, `${key} should be removed`);
+  }
+  assertEqual(store.getItem('other-app.save'), 'keep-me', 'unrelated storage stays');
+  first.startNewLife([]);
+  const pending = first.getCurrentRun()?.pendingEncounter;
+  assert(pending, 'a new life should freeze an encounter');
+  const v3 = store.getItem(CURRENT_SAVE_KEY);
+  assert(v3, 'v3 save should exist');
+  const second = new GameService(store, () => 99);
+  const reloaded = second.getCurrentRun();
+  assertEqual(reloaded?.pendingEncounter?.instanceId, pending?.instanceId, 'second boot continues the same pending encounter');
+  assertEqual(reloaded?.pendingEncounter?.options.map((item) => `${item.choiceId}:${item.cost}`).join(','), pending?.options.map((item) => `${item.choiceId}:${item.cost}`).join(','), 'reload does not change prices');
+  const beforeInspect = reloaded!.rngState;
+  second.inspectCausality(reloaded!.fragments[0]?.id ?? pending!.instanceId);
+  assertEqual(second.getCurrentRun()?.rngState, beforeInspect, 'inspecting causality does not change rng');
+});
+
+test('presentation: options, disabled costs, expandable copy, and routing', () => {
+  const run = startSeed(5);
+  assertEqual(routePlayPage(run), 'encounter', 'an opening life routes to the encounter page');
+  const view = presentEncounter(run, GAME_CONTENT, null);
+  assertEqual(view.options.length, run.pendingEncounter?.options.length, 'presenter keeps every option');
+  assert(view.options.filter((item) => item.cost === 0).length >= 2, 'presenter shows free options');
+  const story = presentStoryText('这是一段足够长的叙述，用来确认展开全文的入口会出现在界面上，而不是把字越缩越小。', 20);
+  assertEqual(story.expandable, true, 'long copy is expandable');
+  const home = presentHome(createInitialProfile(), null);
+  assertEqual(home.runStatus, 'none', 'empty profile is ready to start');
+});
+
+test('application commands lock duplicate archive and start rules', () => {
+  const store = new MemoryStore();
+  let n = 3;
+  const service = new GameService(store, () => {
+    n += 1;
+    return n;
+  });
+  service.startNewLife([]);
+  assertThrows(() => service.startNewLife([]), 'cannot start while a life is active');
+  let guard = 0;
+  while (service.getCurrentRun()?.status === 'active' && guard < 40) {
+    const current = service.getCurrentRun();
+    if (current?.pendingEncounter) {
+      const option = pickOption(current.pendingEncounter.options, 0, current.lifePoints);
+      service.submitCurrentResponse(option.choiceId);
+    } else if (current?.pendingRecall) {
+      service.submitCurrentRecall('question');
+    } else {
+      break;
+    }
+    guard += 1;
+  }
+  assertEqual(service.getCurrentRun()?.status, 'awaiting-archive', 'service reaches archive');
+  service.archiveCurrentLife();
+  service.archiveCurrentLife();
+  assertEqual(service.getProfile().archivedRunIds.length, 1, 'service archive is idempotent');
+});
+
+function findOpeningChoice(templateId: string, choiceId: string): LifeRun {
+  for (let seed = 1; seed <= 300; seed += 1) {
+    const run = startSeed(seed, [], `open-${templateId}-${seed}`);
+    if (run.pendingEncounter?.templateId === templateId) {
+      return submitResponse(run, run.pendingEncounter.instanceId, choiceId, GAME_CONTENT);
+    }
+  }
+  throw new Error(`No seed opened ${templateId}`);
+}
+
+function playUntilTemplate(run: LifeRun, templateId: string): LifeRun | null {
+  let current = run;
+  for (let step = 0; step < 24 && current.status === 'active'; step += 1) {
+    if (current.pendingEncounter?.templateId === templateId) {
+      return current;
+    }
+    if (current.pendingEncounter) {
+      const option = pickOption(current.pendingEncounter.options, 0, current.lifePoints);
+      current = submitResponse(current, current.pendingEncounter.instanceId, option.choiceId, GAME_CONTENT);
+    } else if (current.pendingRecall) {
+      current = submitRecall(current, current.pendingRecall.instanceId, 'revise', GAME_CONTENT);
+    } else {
+      break;
+    }
+  }
+  return current.pendingEncounter?.templateId === templateId ? current : null;
+}
+
+function playUntilRecall(run: LifeRun): LifeRun {
+  let current = run;
+  for (let step = 0; step < 16 && current.status === 'active'; step += 1) {
+    if (current.pendingRecall) {
+      return current;
+    }
+    if (current.pendingEncounter) {
+      const option = pickOption(current.pendingEncounter.options, 0, current.lifePoints);
+      current = submitResponse(current, current.pendingEncounter.instanceId, option.choiceId, GAME_CONTENT);
+    }
+  }
+  throw new Error('Did not reach a recall');
+}
+
+function drainToZero(run: LifeRun): LifeRun {
+  let current = run;
+  for (let step = 0; step < 24 && current.status === 'active'; step += 1) {
+    if (current.lifePoints === 0 && (current.pendingEncounter || current.pendingRecall)) {
+      return current;
+    }
+    if (current.pendingEncounter) {
+      const paid = [...current.pendingEncounter.options]
+        .filter((item) => item.enabled && item.cost > 0 && item.cost <= current.lifePoints)
+        .sort((left, right) => right.cost - left.cost)[0];
+      const free = current.pendingEncounter.options.find((item) => item.enabled && item.cost === 0);
+      const choice = paid ?? free;
+      if (!choice) {
+        break;
+      }
+      current = submitResponse(current, current.pendingEncounter.instanceId, choice.choiceId, GAME_CONTENT);
+      continue;
+    }
+    if (current.pendingRecall) {
+      current = submitRecall(current, current.pendingRecall.instanceId, 'hold', GAME_CONTENT);
+    }
+  }
+  return current;
+}
+
+function runAll(): void {
+  let failed = 0;
+  for (const item of tests) {
+    try {
+      item.run();
+      console.log(`ok  ${item.name}`);
+    } catch (error) {
+      failed += 1;
+      console.error(`fail  ${item.name}`);
+      console.error(error);
+    }
+  }
+  console.log(`${tests.length - failed}/${tests.length} passed`);
+  if (failed > 0) {
+    throw new Error(`${failed} tests failed`);
   }
 }
 
-console.log(`\n${passed}/${tests.length} core tests passed.`);
+runAll();

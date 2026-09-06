@@ -1,8 +1,8 @@
 {
   "name": "reincarnation-life",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "A Cocos Creator text game about living repeated lives with permanent progression.",
+  "description": "A Cocos Creator text game about living repeated lives shaped by experience and meaning.",
   "type": "2d",
   "uuid": "ed1a6452-96a8-43f1-a5d6-fdcf2772eb6c",
   "creator": {

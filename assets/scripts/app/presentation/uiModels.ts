@@ -1,27 +1,13 @@
-import {
-  HistoryRegionId,
-  LegacyCategory,
-  LegacyPersistence,
-  MarkNature,
-  ScenarioIcon,
-  ScenarioKind,
-} from '../../core/model';
-import {
-  CharacterAgeBand,
-  CharacterPose,
-  FigureVisual,
-  RegionVisual,
-  SceneVisual,
-} from './visualConfig';
+import { MarkNature, RecallStance, ScenarioKind, TriggerKind } from '../../core/model';
+import { CharacterAgeBand, SceneVisual } from './visualConfig';
 
 export type PlayPage =
   | 'home'
-  | 'path'
-  | 'scenario'
-  | 'choice'
-  | 'summary'
-  | 'ready'
-  | 'result';
+  | 'carry'
+  | 'encounter'
+  | 'recall'
+  | 'causality'
+  | 'ending';
 
 export interface TruncatedText {
   preview: string;
@@ -42,255 +28,119 @@ export interface MarkStripView {
   overflow: MarkChipView[];
 }
 
-export interface ResourceView {
-  key: string;
-  label: string;
-  value: number;
-  delta?: number;
-}
-
-export interface ResourceDeltaView {
-  key: string;
-  label: string;
-  from: number;
-  to: number;
-  delta: number;
-}
-
-export interface MarkDeltaView {
-  id: string;
-  name: string;
-  nature: MarkNature;
-  from: number;
-  to: number;
-  delta: number;
-  removed: boolean;
-}
-
-export interface StateDiffView {
-  resources: ResourceDeltaView[];
-  marks: MarkDeltaView[];
-}
-
-export interface ActionView {
-  id: string;
+export interface DiscoveryView {
+  contentKey: string;
   title: string;
-  hint: string;
-  icon: ScenarioIcon;
-  costText?: string;
-  enabled: boolean;
-  disabledReason?: string;
+  statement: TruncatedText;
+  sourceCount: number;
+  sourceLine: string;
 }
 
-export interface ChoiceView {
+export interface CarryCardView {
   id: string;
-  text: string;
-  preview: string;
-  foresight?: string;
+  statement: TruncatedText;
+  theme: string;
+  sourceLine: string;
   selected: boolean;
-}
-
-export interface SlotView {
-  filled: boolean;
-  name?: string;
-  category?: string;
-}
-
-export interface TimelineItemView {
-  age: number;
-  text: TruncatedText;
 }
 
 export interface HomeView {
-  level: number;
-  totalExp: number;
-  expProgress: number;
-  expCaption: string;
-  nextReward?: string;
-  openingReserve: string;
-  talentCandidates: number;
-  slots: SlotView[];
-  boons: string[];
-  runStatus: 'none' | 'active' | 'reward-pending' | 'settled';
+  lifeCount: number;
+  discoveryCount: number;
+  runStatus: 'none' | 'active' | 'awaiting-archive' | 'settled';
   continueCaption?: string;
+  archiveLine: string;
+  lastTitle?: string;
+  scene: SceneVisual;
   age: number;
   ageBand: CharacterAgeBand;
-  scene: SceneVisual;
+  discoveries: DiscoveryView[];
 }
 
-export interface TalentCardView {
+export interface CarryPageView {
+  cards: CarryCardView[];
+  selectedCount: number;
+  max: number;
+  canSkip: boolean;
+}
+
+export interface RecalledChipView {
   id: string;
-  name: string;
-  effectLine: string;
-  description: TruncatedText;
-  selected: boolean;
-  nature: MarkNature;
+  text: string;
 }
 
-export interface TalentPageView {
-  required: number;
-  remaining: number;
-  canBegin: boolean;
-  candidates: TalentCardView[];
-  slots: Array<TalentCardView | null>;
-}
-
-export interface RegionCardView {
-  id: HistoryRegionId;
-  name: string;
-  era: string;
-  description: TruncatedText;
-  scene: SceneVisual;
-  region: RegionVisual;
-}
-
-export interface FigureCardView {
+export interface ResponseOptionView {
   id: string;
-  name: string;
-  epithet: string;
-  opening: TruncatedText;
-  look: FigureVisual;
-  selected: boolean;
-}
-
-export interface PathCardView {
-  id: string;
-  title: string;
-  summary: TruncatedText;
-  kind: ScenarioKind;
-  sceneName: string;
-  icon: ScenarioIcon;
-  scene: SceneVisual;
-}
-
-export interface PathPageView {
-  caption: string;
-  marks: MarkStripView;
-  paths: PathCardView[];
-  age: number;
-  ageBand: CharacterAgeBand;
-  region?: HistoryRegionId;
-  figureId?: string;
-}
-
-export interface ScenarioPageView {
-  title: string;
-  kind: ScenarioKind;
-  sceneName: string;
-  scene: SceneVisual;
-  pose: CharacterPose;
-  age: number;
-  ageBand: CharacterAgeBand;
-  turnCurrent: number;
-  turnMax: number;
-  turnProgress: number;
-  resources: ResourceView[];
-  event: TruncatedText;
-  marks: MarkStripView;
-  actions: ActionView[];
-  diffs: StateDiffView;
-  region?: HistoryRegionId;
-  figureId?: string;
-}
-
-export interface ChoicePageView {
-  source: string;
-  age: number;
-  ageBand: CharacterAgeBand;
-  event: TruncatedText;
-  choices: ChoiceView[];
-  selectedId: string | null;
-  canConfirm: boolean;
-  canForesight: boolean;
-  foresightOpen: boolean;
-  canReroll: boolean;
-  rerollsRemaining: number;
-  scene: SceneVisual;
-  region?: HistoryRegionId;
-  figureId?: string;
-}
-
-export interface SummaryPageView {
-  title: string;
-  years: number;
-  ageAfter: number;
-  ageBand: CharacterAgeBand;
-  lines: TruncatedText[];
-  marks: MarkStripView;
-  diffs: StateDiffView;
-  scene: SceneVisual;
-  region?: HistoryRegionId;
-  figureId?: string;
-}
-
-export interface ReadyPageView {
-  age: number;
-  ageBand: CharacterAgeBand;
-  familyName: string;
-  stageLine: string;
-  worldLine: string;
-  marks: MarkStripView;
-  latest: TruncatedText;
-  latestAge: number;
-  effectLine: string;
-  recent: string[];
-  autoPlaying: boolean;
-  scene: SceneVisual;
-}
-
-export interface ResultPageView {
-  endingTitle: string;
-  endingDescription: TruncatedText;
-  age: number;
-  score: number;
-  endReason: string;
-  worldLine: string;
-  earnedExp: number;
-  expDetails: string;
-  leveledUp: boolean;
-  levelLine: string;
-  rewardText: string;
-  pendingReward: boolean;
-  selectedRewardName?: string;
-  timeline: TimelineItemView[];
-  marks: MarkStripView;
-  scene: SceneVisual;
-}
-
-export interface RewardCardView {
-  id: string;
-  name: string;
-  category: LegacyCategory;
-  categoryLabel: string;
-  description: TruncatedText;
-  persistence: LegacyPersistence;
-  rankText: string;
-  selected: boolean;
-}
-
-export interface RewardPageView {
-  cards: RewardCardView[];
-  selectedId: string | null;
-  canClaim: boolean;
-}
-
-export interface LoadoutItemView {
-  id: string;
-  name: string;
-  categoryLabel: string;
-  description: TruncatedText;
-  rank: number;
-  maxRank: number;
-  equipped: boolean;
+  text: string;
+  preview: string;
+  cost: number;
+  costLabel?: string;
+  supportReason?: string;
   enabled: boolean;
   disabledReason?: string;
+  selected: boolean;
 }
 
-export interface LoadoutPageView {
-  slots: SlotView[];
-  filled: number;
-  slotCount: number;
-  items: LoadoutItemView[];
+export interface EncounterPageView {
+  title: string;
+  age: number;
+  ageBand: CharacterAgeBand;
+  lifePoints: number;
+  lifePointCap: number;
+  worldLine: string;
+  event: TruncatedText;
+  triggerNote: TruncatedText;
+  triggerKind: TriggerKind;
+  marks: MarkStripView;
+  recalled: RecalledChipView[];
+  options: ResponseOptionView[];
   selectedId: string | null;
-  selected?: LoadoutItemView;
+  canConfirm: boolean;
+  scene: SceneVisual;
+  sceneKind: ScenarioKind;
+}
+
+export interface RecallOptionView {
+  stance: RecallStance;
+  label: string;
+  statement: TruncatedText;
+  selected: boolean;
+}
+
+export interface RecallPageView {
+  prompt: TruncatedText;
+  evidence: TruncatedText[];
+  age: number;
+  ageBand: CharacterAgeBand;
+  lifePoints: number;
+  options: RecallOptionView[];
+  selectedStance: RecallStance | null;
+  canConfirm: boolean;
+  scene: SceneVisual;
+}
+
+export interface CausalityPageView {
+  title: string;
+  happened: TruncatedText;
+  response?: TruncatedText;
+  understood?: TruncatedText;
+  later: string[];
+  people: string[];
+  triggerNote: string;
+  evoked: Array<{ id: string; note: string }>;
+  sources: Array<{ id: string; relation: string }>;
+}
+
+export interface EndingPageView {
+  title: string;
+  text: TruncatedText;
+  age: number;
+  ageBand: CharacterAgeBand;
+  worldLine: string;
+  shapedBy: TruncatedText[];
+  changed: string[];
+  unresolved: string[];
+  unfulfilled: string[];
+  pendingArchive: boolean;
+  scene: SceneVisual;
 }
