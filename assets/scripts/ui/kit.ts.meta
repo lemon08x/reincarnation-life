@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "3c9e4077-a183-4f57-d2c0-7d8e9f001122",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/ui/kit.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}

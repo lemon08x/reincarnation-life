@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "4d0f5188-b294-4068-e3d1-8e9f00112233",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/ui/sceneArt.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}

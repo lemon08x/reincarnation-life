@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "2b8d3f66-9072-4e46-c1bf-6c7d8e9f0011",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/ui/theme.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}

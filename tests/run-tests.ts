@@ -1,4 +1,11 @@
 import { GameService, SaveStore } from '../assets/scripts/app/gameService';
+import {
+  presentChoices,
+  presentScenario,
+  presentStateDiff,
+  presentStoryText,
+} from '../assets/scripts/app/presentation/presenters';
+import { SCENE_KIND_NAMES, SCENE_VISUALS } from '../assets/scripts/app/presentation/visualConfig';
 import { GAME_CONTENT } from '../assets/scripts/content/gameContent';
 import { validateGameContent } from '../assets/scripts/core/contentValidation';
 import {
@@ -24,6 +31,7 @@ import {
   LifeRun,
   ReincarnatorProfile,
   SAVE_VERSION,
+  ScenarioKind,
 } from '../assets/scripts/core/model';
 import {
   createInitialProfile,
@@ -648,6 +656,117 @@ test('higher levels still expand initial choices alongside the legacy system', (
 test('all configured content passes structural validation', () => {
   const errors = validateGameContent(GAME_CONTENT);
   assertEqual(errors.length, 0, `content validation errors: ${errors.join(' | ')}`);
+});
+
+test('presentation keeps every pending choice and supports four-way comparison', () => {
+  const event = GAME_CONTENT.events.find((item) => item.id === 'first_job');
+  assert(Boolean(event && event.choices && event.choices.length >= 4), 'first_job should offer four choices');
+  const choices = event!.choices!;
+  const waiting = findRunWaitingForDecision();
+  const run: LifeRun = {
+    ...waiting,
+    pendingDecision: {
+      age: waiting.age,
+      eventId: 'first_job',
+      choiceIds: choices.map((choice) => choice.id),
+      automaticEffects: {},
+      rerolledEventIds: [],
+    },
+  };
+  const view = presentChoices(run, GAME_CONTENT, null, false);
+  assertEqual(view.choices.length, choices.length, 'choice presenter should not drop options');
+  for (const choice of choices) {
+    assert(view.choices.some((item) => item.id === choice.id), `missing choice ${choice.id}`);
+  }
+});
+
+test('unaffordable scenario actions stay visible and explain the missing cost', () => {
+  const commerce = GAME_CONTENT.scenarios.find((item) => item.id === 'commerce');
+  assert(commerce !== undefined, 'commerce scenario should exist');
+  const run = startTestLife(createInitialProfile(GAME_CONTENT), 7, 'ui-afford');
+  const sceneRun: LifeRun = {
+    ...run,
+    turnState: 'in-scenario',
+    currentScenario: {
+      scenarioId: commerce.id,
+      title: commerce.title,
+      kind: commerce.kind,
+      icon: commerce.icon,
+      turn: 0,
+      maxTurns: commerce.turns,
+      years: commerce.years,
+      resources: { purse: 0, venture: 0 },
+      resourceLabels: commerce.resourceLabels,
+      log: [commerce.summary],
+      actionIds: ['hold'],
+      startedAtAge: run.age,
+    },
+  };
+  const view = presentScenario(sceneRun, GAME_CONTENT);
+  const invest = view.actions.find((item) => item.id === 'invest');
+  const hold = view.actions.find((item) => item.id === 'hold');
+  const expand = view.actions.find((item) => item.id === 'expand');
+  assert(hold?.enabled, 'free action should remain enabled');
+  assert(invest && !invest.enabled, 'costly action should be visible but disabled');
+  assert(Boolean(invest?.disabledReason), 'disabled action should explain the missing resource');
+  assert(expand && !expand.enabled, 'second costly action should also stay visible');
+});
+
+test('foresight stays behind an explicit reveal and respects capability', () => {
+  const waiting = findRunWaitingForDecision();
+  const none = presentChoices(waiting, GAME_CONTENT, waiting.pendingDecision?.choiceIds[0] ?? null, true);
+  assertEqual(none.canForesight, false, 'default lives should not have foresight');
+  assert(none.choices.every((choice) => !choice.foresight), 'foresight text should stay hidden without permission');
+  const ranged: LifeRun = {
+    ...waiting,
+    capabilities: {
+      ...waiting.capabilities,
+      choiceForesight: 'range',
+    },
+  };
+  const closed = presentChoices(ranged, GAME_CONTENT, null, false);
+  assert(closed.canForesight, 'range foresight should expose the independent control');
+  assert(closed.choices.every((choice) => !choice.foresight), 'foresight remains closed until revealed');
+  const opened = presentChoices(ranged, GAME_CONTENT, null, true);
+  assert(opened.choices.some((choice) => Boolean(choice.foresight)), 'revealed foresight should attach possible outcomes');
+});
+
+test('long story text is truncated with an expand payload', () => {
+  const full = '这是一段故意写得很长的人生叙述，用来确认主界面只展示两到三行，并且把完整原文留给展开入口，不把故事截断后丢掉。';
+  const story = presentStoryText(full);
+  assert(story.expandable, 'long text should be expandable');
+  assert(story.preview.length < story.full.length, 'preview should be shorter than the full record');
+  assertEqual(story.full, full, 'full text should keep the original wording');
+  const short = presentStoryText('短句。');
+  assertEqual(short.expandable, false, 'short text should not require expansion');
+});
+
+test('state diffs capture resource and mark changes', () => {
+  const diff = presentStateDiff(
+    { resources: { purse: 3 }, marks: [{ id: 'means', intensity: 1 }] },
+    {
+      resources: { purse: 1, venture: 2 },
+      marks: [{ id: 'means', intensity: 2 }],
+      resourceLabels: { purse: '本钱', venture: '生意' },
+    },
+    GAME_CONTENT,
+  );
+  const purse = diff.resources.find((item) => item.key === 'purse');
+  const venture = diff.resources.find((item) => item.key === 'venture');
+  const means = diff.marks.find((item) => item.id === 'means');
+  assertEqual(purse?.delta, -2, 'purse should fall by two');
+  assertEqual(venture?.delta, 2, 'new venture should appear as a gain');
+  assertEqual(means?.delta, 1, 'means mark should intensify');
+});
+
+test('all eight scenario kinds map to named cartoon scenes', () => {
+  const kinds: ScenarioKind[] = ['childhood', 'studies', 'commerce', 'craft', 'journey', 'hearth', 'service', 'dusk'];
+  const names = ['庭院', '书房', '集市', '工坊', '旅途', '居所', '议事厅', '暮年庭院'];
+  kinds.forEach((kind, index) => {
+    assertEqual(SCENE_KIND_NAMES[kind], names[index], `${kind} scene name`);
+    assertEqual(SCENE_VISUALS[kind].name, names[index], `${kind} visual name`);
+    assertEqual(SCENE_VISUALS[kind].kind, kind, `${kind} visual identity`);
+  });
 });
 
 test('one thousand deterministic lives finish without dead ends', () => {

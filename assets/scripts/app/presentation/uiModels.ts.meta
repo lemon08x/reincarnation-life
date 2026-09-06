@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "9e5a0c33-6d4f-4b13-9e8c-3f4a5b6c7d8e",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/app/presentation/uiModels.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "0f6b1d44-7e50-4c24-af9d-4a5b6c7d8e9f",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "moduleId": "project:///assets/scripts/app/presentation/presenters.js",
+    "importerSettings": 0,
+    "simulateGlobals": []
+  }
+}
