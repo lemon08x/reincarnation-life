@@ -88,6 +88,8 @@ npm test
 
 当前产品定位、完整业务流程和实现架构统一维护在 [Game_Design.md](Game_Design.md)。
 
+已确认、待实施的下一版玩法见 [玩法重构计划](GAMEPLAY_REFACTOR_PLAN.md)，交接提示词见 [Grok 4.6 实施提示词](GROK_IMPLEMENTATION_PROMPT.md)。该计划以经历碎片、人生点和可追溯的理解成长替代现有玩法；本次文档提交不包含具体实现。
+
 ## 原创边界
 
 本项目的源代码、事件文本、数值、名称、界面和素材均独立设计与实现。
