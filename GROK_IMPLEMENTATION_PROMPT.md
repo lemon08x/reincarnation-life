@@ -1,3 +1,5 @@
+> 历史记录：此文件保留原计划/交接上下文。2026-09-07 整改后的现行规则、内容数量和界面流程，以 [Game_Design.md](Game_Design.md) 及 [整改记录](CORRECTION_REPORT.md) 为准。
+
 # Grok 4.6 实施提示词
 
 将下面整段内容作为计划提交后的实施请求。完整规格以同目录的 `GAMEPLAY_REFACTOR_PLAN.md` 为准。

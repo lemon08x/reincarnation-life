@@ -1,3 +1,4 @@
+import { parseGrowth } from './growthSave';
 import {
   ArchiveDiscovery,
   BoundPerson,
@@ -14,6 +15,7 @@ import {
   LifeWorld,
   PendingEncounter,
   PendingOption,
+  PendingResult,
   PendingRecall,
   PendingRecallOption,
   ReincarnatorProfile,
@@ -98,7 +100,7 @@ function parseLifeRun(value: unknown): LifeRun | null {
   const status = value.status === 'awaiting-archive' || value.status === 'settled' || value.status === 'active'
     ? value.status
     : 'active';
-  const turnState = value.turnState === 'awaiting-recall'
+  const turnState = value.turnState === 'showing-result' || value.turnState === 'awaiting-recall'
     || value.turnState === 'awaiting-archive'
     || value.turnState === 'settled'
     || value.turnState === 'awaiting-response'
@@ -106,11 +108,14 @@ function parseLifeRun(value: unknown): LifeRun | null {
     : 'awaiting-response';
   const pendingEncounter = parsePendingEncounter(value.pendingEncounter);
   const pendingRecall = parsePendingRecall(value.pendingRecall);
+  const growth = value.growth === undefined ? undefined : parseGrowth(value.growth);
+  if (growth === null || (numberValue(value.rulesVersion, 7) >= 8 && !growth)) return null;
   return {
+    growth,
     id: value.id,
     seed: Math.floor(numberValue(value.seed, 1)),
     rngState: Math.floor(numberValue(value.rngState, 1)),
-    rulesVersion: RULES_VERSION,
+    rulesVersion: Math.floor(numberValue(value.rulesVersion, 6)),
     status,
     turnState,
     age: Math.max(0, Math.floor(numberValue(value.age, 0))),
@@ -120,7 +125,7 @@ function parseLifeRun(value: unknown): LifeRun | null {
     marks: parseMarks(value.marks),
     world: parseWorld(value.world),
     lifePoints: clamp(Math.floor(numberValue(value.lifePoints, 2)), 0, 4),
-    lifePointCap: 4,
+    lifePointCap: growth ? 0 : 4,
     lifePointLog: parsePointLog(value.lifePointLog),
     encounterCount: Math.max(0, Math.floor(numberValue(value.encounterCount, 0))),
     recallCount: Math.max(0, Math.floor(numberValue(value.recallCount, 0))),
@@ -138,6 +143,9 @@ function parseLifeRun(value: unknown): LifeRun | null {
     scheduled: parseScheduled(value.scheduled),
     pendingEncounter,
     pendingRecall,
+    pendingResult: parseResult(value.pendingResult),
+    recentFeedback: isRecord(value.recentFeedback) && typeof value.recentFeedback.sourceId === 'string' && typeof value.recentFeedback.text === 'string'
+      ? { sourceId: value.recentFeedback.sourceId, text: value.recentFeedback.text, changes: stringArray(value.recentFeedback.changes) } : undefined,
     closing: parseClosing(value.closing),
     skippedYearNotes: stringArray(value.skippedYearNotes),
   };
@@ -205,12 +213,14 @@ function parsePendingRecall(value: unknown): PendingRecall | undefined {
       }
       return [{
         stance: option.stance,
+        specialtyId: typeof option.specialtyId === 'string' ? option.specialtyId : undefined,
         label: typeof option.label === 'string' ? option.label : option.stance,
         statement: typeof option.statement === 'string' ? option.statement : '',
+        effectHint: typeof option.effectHint === 'string' ? option.effectHint : undefined,
       }];
     })
     : [];
-  if (options.length < 3) {
+  if (options.length < 2) {
     return undefined;
   }
   return {
@@ -280,6 +290,7 @@ function parseUnderstandings(value: unknown): Understanding[] {
       theme,
       statement: item.statement,
       stance,
+      effectiveStance: item.effectiveStance === 'revise' || item.effectiveStance === 'question' ? item.effectiveStance : stance,
       version: Math.max(1, Math.floor(numberValue(item.version, 1))),
       previousVersionId: typeof item.previousVersionId === 'string' ? item.previousVersionId : undefined,
       sourceFragmentIds: stringArray(item.sourceFragmentIds),
@@ -462,7 +473,7 @@ function parseTrigger(value: unknown): PendingEncounter['triggerKind'] {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value)
-    ? [...new Set(value.filter((item): item is string => typeof item === 'string'))]
+    ? Array.from(new Set(value.filter((item): item is string => typeof item === 'string')))
     : [];
 }
 
@@ -490,5 +501,17 @@ export function emptyCausalityFallback(id: string): CausalityRecord {
     trigger: { kind: 'chance', note: '' },
     evoked: [],
     sources: [],
+  };
+}
+
+function parseResult(value: unknown): PendingResult | undefined {
+  if (!isRecord(value) || typeof value.instanceId !== 'string' || typeof value.fragmentId !== 'string') return undefined;
+  return { instanceId: value.instanceId, fragmentId: value.fragmentId,
+    title: typeof value.title === 'string' ? value.title : '这次回应之后',
+    response: typeof value.response === 'string' ? value.response : '',
+    outcome: typeof value.outcome === 'string' ? value.outcome : '',
+    consequence: typeof value.consequence === 'string' ? value.consequence : '',
+    changes: stringArray(value.changes), costPaid: Math.max(0, numberValue(value.costPaid, 0)),
+    sceneKind: typeof value.sceneKind === 'string' ? value.sceneKind as PendingResult['sceneKind'] : 'hearth',
   };
 }

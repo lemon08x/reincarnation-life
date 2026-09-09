@@ -14,8 +14,8 @@ export function validateGameContent(content: GameContent): string[] {
   validateUniqueIds('region', content.regions.map((item) => item.id), errors);
   validateUniqueIds('figure', content.figures.map((item) => item.id), errors);
 
-  if (content.encounters.length !== 24) {
-    errors.push(`Expected 24 encounter templates, found ${content.encounters.length}.`);
+  if (content.encounters.length !== 30) {
+    errors.push(`Expected 30 encounter templates, found ${content.encounters.length}.`);
   }
   if (content.families.length < 3) {
     errors.push('At least three families are required.');
@@ -33,8 +33,15 @@ export function validateGameContent(content: GameContent): string[] {
 
   for (const theme of LIFE_THEMES) {
     const count = content.encounters.filter((item) => item.theme === theme && !item.crossThemes).length;
-    if (count !== 6) {
-      errors.push(`Theme ${theme} should have 6 dedicated nodes, found ${count}.`);
+    if (count !== 8) {
+      errors.push(`Theme ${theme} should have 8 dedicated nodes, found ${count}.`);
+    }
+  }
+  for (let chapter = 0; chapter < 4; chapter++) {
+    for (const theme of LIFE_THEMES) {
+      if (content.encounters.filter(t => t.chapter === chapter && t.theme === theme && !t.crossThemes).length < 2) {
+        errors.push(`Chapter ${chapter} must have two independent ${theme} scenes.`);
+      }
     }
   }
   const crossovers = content.encounters.filter((item) => (item.crossThemes?.length ?? 0) > 0);
@@ -44,6 +51,14 @@ export function validateGameContent(content: GameContent): string[] {
 
   for (const encounter of content.encounters) {
     validateEncounter(encounter, encounterIds, seedIds, errors);
+    if (encounter.chapter > 0 && !encounter.questionChoice) errors.push(`${encounter.id} needs a situated question response.`);
+    const roles = Array.from(JSON.stringify(encounter).matchAll(/\{(\w+)\}/g)).map(m => m[1]);
+    for (const role of roles) if (!encounter.people.some(p => p.role === role)) errors.push(`${encounter.id} has an unbound person: ${role}`);
+    for (const choice of encounter.choices) for (const outcome of choice.outcomes) for (const scheduled of outcome.schedule ?? []) {
+      const target = content.encounters.find(t => t.id === scheduled.templateId);
+      if (target && (target.chapter <= encounter.chapter || encounter.maxAge + scheduled.afterYears > target.maxAge
+        || encounter.minAge + scheduled.afterYears + (scheduled.windowYears ?? 8) < target.minAge)) errors.push(`${encounter.id} has an unreachable later callback: ${target.id}`);
+    }
   }
 
   for (const family of content.families) {
@@ -64,6 +79,7 @@ export function validateGameContent(content: GameContent): string[] {
     }
   }
   for (const seed of content.understandingSeeds) {
+    if (!seed.matureRevised || !seed.matureQuestion) errors.push(`${seed.id} needs an understanding that can grow at the later recall.`);
     if (!seed.initial || !seed.revised || !seed.question) {
       errors.push(`Understanding ${seed.id} needs initial, revised, and question statements.`);
     }
@@ -93,6 +109,7 @@ function validateEncounter(
   seedIds: Set<string>,
   errors: string[],
 ): void {
+  if (!Number.isInteger(encounter.chapter) || encounter.chapter < 0 || encounter.chapter > 3) errors.push(`Invalid chapter: ${encounter.id}`);
   if (encounter.minAge > encounter.maxAge) {
     errors.push(`Encounter ${encounter.id} has an invalid age range.`);
   }
@@ -111,7 +128,7 @@ function validateEncounter(
     errors.push(`Encounter ${encounter.id} needs person bindings.`);
   }
 
-  for (const choice of encounter.choices) {
+  for (const choice of [...encounter.choices, ...(encounter.questionChoice ? [encounter.questionChoice] : [])]) {
     if (choice.outcomes.length < 1) {
       errors.push(`Choice ${encounter.id}/${choice.id} needs an outcome.`);
     }

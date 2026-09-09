@@ -1,0 +1,8 @@
+// Authored short labels keep actions distinct; full wording remains in the optional explanation.
+export const ACTION_LABELS: Record<string,string> = {
+  'odd-job':'做临工', negotiate:'谈还款', 'sort-out':'理开支', 'use-tools':'用家中工具', 'use-notes':'用家传笔记', 'use-reputation':'凭交付记录', 'use-teaching':'用编订家学',
+  'learn-repair':'学修补','save-money':'攒工钱','take-urgent':'接急活',partial:'留常工','use-merchant':'托商行安排','repair-home':'用工具修', 'rent-tools':'租工具修','skilled-repair':'凭手艺修','steady-carry':'做搬运','night-work':'接夜工','ask-advance':'预支工钱','repair-roof':'修屋瓦','use-regular':'继续常工',
+  'pay-off':'交清开支','pay-and-reserve':'交款留储备','buy-tools':'交款买工具',installment:'分期还款',apprentice:'正式拜师','watch-first':'跟着学','use-security':'安心学艺','master-steps':'练工序','help-only':'继续帮工','take-batch':'接制作活','negotiate-deadline':'谈交期','use-workshop':'用工作间','borrow-shop':'借工坊','write-notes':'记下方法',redo:'重做作品','ask-mentor':'请教师傅',graduate:'正式出师','graduate-work':'出师帮工','write-manual':'留下手册','leave-record':'留下交付记录','not-ready':'改日再交',
+  'set-rules':'定经营规矩','find-orders':'找订单','prepare-and-make':'备料制作','small-first':'先做小修','take-extra':'接加急单','decline-gracefully':'婉拒急单','finish-neighbors':'交邻里小修','batch-workshop':'批量修理','rush-extra':'赶补货','balance-books':'理账目','ask-help':'商量工期','use-reserve':'动用储备','settle-shop':'正式经营','keep-merchant':'签长期往来','write-method':'留下经营法','close-trial':'结束试营',
+};
+export const BUILDING_LABELS:Record<string,string>={'security:home':'修好旧屋','security:reserve':'备下储备','asset:basic-tools':'添置工具','asset:workshop':'建立工作间','education:notes':'整理笔记','education:teaching':'编订家学','reputation:delivery':'整理交付记录','reputation:merchant':'建立商行往来'};

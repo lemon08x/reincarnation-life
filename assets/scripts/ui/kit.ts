@@ -1,5 +1,6 @@
 import {
   Button,
+  BlockInputEvents,
   Color,
   Component,
   Graphics,
@@ -12,9 +13,11 @@ import {
   UIOpacity,
   UITransform,
   Vec3,
+  Vec2,
   tween,
 } from 'cc';
 import { TruncatedText } from '../app/presentation/uiModels';
+import { textHeight } from '../app/presentation/journalLayout';
 import { DESIGN_HEIGHT, DESIGN_WIDTH, SafeLayout, THEME, TYPE, computeLayout } from './theme';
 
 export type ClickHandler = () => void;
@@ -30,6 +33,8 @@ export class UiKit {
   private readonly ticks: Array<(time: number) => void> = [];
   private elapsed = 0;
   private looping = false;
+  private currentScroll: ScrollView | null = null;
+  private scrollOffsets = new Map<string, number>();
 
   public constructor(owner: Component, host: Node) {
     this.owner = owner;
@@ -38,6 +43,8 @@ export class UiKit {
   }
 
   public beginPage(name: string, keepScene = false): { screen: Node; scene: Node; hud: Node } {
+    if (this.currentScroll?.isValid) this.scrollOffsets.set(this.pageName, Math.max(0, this.currentScroll.getScrollOffset().y));
+    this.currentScroll = null;
     this.layout = computeLayout();
     const reuse = keepScene && this.pageName === name && this.screen?.isValid && this.sceneLayer?.isValid && this.hudLayer?.isValid;
     if (!reuse) {
@@ -52,7 +59,7 @@ export class UiKit {
       this.screen = screen;
     } else if (this.hudLayer) {
       Tween.stopAllByTarget(this.hudLayer);
-      this.hudLayer.removeAllChildren();
+      this.hudLayer.children.slice().forEach(child => child.destroy());
     }
     this.pageName = name;
     this.startLoop();
@@ -157,13 +164,13 @@ export class UiKit {
     return node;
   }
 
-  public textAction(parent: Node, text: string, x: number, y: number, onClick: ClickHandler): Node {
+  public textAction(parent: Node, text: string, x: number, y: number, onClick: ClickHandler, width = 240): Node {
     const height = Math.max(48, this.layout.minTouch);
-    const node = this.createNode(parent, `TextAction:${text}`, x, y, 600, height);
+    const node = this.createNode(parent, `TextAction:${text}`, x, y, width, height);
     const button = node.addComponent(Button);
     button.transition = Button.Transition.NONE;
     node.on(Button.EventType.CLICK, onClick, this.owner);
-    this.label(node, text, 0, 0, 580, height - 4, TYPE.caption + 2, THEME.muted, true);
+    this.label(node, text, 0, 0, width - 8, height - 4, 24, THEME.muted, true);
     return node;
   }
 
@@ -196,6 +203,7 @@ export class UiKit {
 
   public overlay(parent: Node, title: string, body: string, onClose: ClickHandler): void {
     const veil = this.createNode(parent, 'Overlay', 0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
+    veil.addComponent(BlockInputEvents);
     const graphics = veil.addComponent(Graphics);
     graphics.fillColor = new Color(43, 38, 31, 140);
     graphics.rect(-DESIGN_WIDTH / 2, -DESIGN_HEIGHT / 2, DESIGN_WIDTH, DESIGN_HEIGHT);
@@ -203,21 +211,26 @@ export class UiKit {
     const card = this.panel(veil, 0, 20, 620, 760, THEME.white, 28, THEME.coral);
     this.label(card, title, 0, 320, 540, 48, TYPE.subtitle, THEME.ink, true, true);
     this.scrollText(card, body, 0, 20, 540, 560);
-    this.button(card, '收起', 0, -320, 280, 64, THEME.coral, onClose);
+    this.button(card, '收起', 0, -320, 280, 64, THEME.coralDeep, () => { veil.destroy(); onClose(); });
   }
 
   public scrollArea(parent: Node, x: number, y: number, width: number, height: number, contentHeight: number): Node {
     const root = this.createNode(parent, 'Scroll', x, y, width, height);
     const mask = root.addComponent(Mask);
     mask.type = Mask.Type.GRAPHICS_RECT;
-    const content = this.createNode(root, 'Content', 0, (contentHeight - height) / 2, width, contentHeight);
+    const content = this.createNode(root, 'Content', 0, (height - contentHeight) / 2, width, contentHeight);
     const scroll = root.addComponent(ScrollView);
     scroll.horizontal = false;
     scroll.vertical = true;
-    scroll.inertia = true;
-    scroll.elastic = true;
+    scroll.inertia = false;
+    scroll.elastic = false;
     scroll.brake = 0.5;
     scroll.content = content;
+    if (parent === this.hudLayer) {
+      this.currentScroll = scroll;
+      const offset = Math.min(this.scrollOffsets.get(this.pageName) ?? 0, Math.max(0, contentHeight - height));
+      scroll.scrollToOffset(new Vec2(0, offset), 0);
+    }
     return content;
   }
 
@@ -264,10 +277,10 @@ export class UiKit {
   }
 
   private scrollText(parent: Node, text: string, x: number, y: number, width: number, height: number): void {
-    const lines = Math.max(12, Math.ceil(text.length / 16));
-    const contentHeight = Math.max(height, lines * 32);
+    const contentHeight = Math.max(height, textHeight(text, width - 12, 30, 44));
     const content = this.scrollArea(parent, x, y, width, height, contentHeight);
-    this.label(content, text, 0, 0, width - 12, contentHeight, TYPE.body, THEME.ink, false, false, 34);
+    const label = this.label(content, text, 0, 0, width - 12, contentHeight, 30, THEME.ink, false, false, 44);
+    label.verticalAlign = Label.VerticalAlign.TOP;
   }
 
   private startLoop(): void {

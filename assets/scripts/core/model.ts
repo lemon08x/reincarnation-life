@@ -1,13 +1,16 @@
+import type { GrowthState } from './growthModel';
 export const SAVE_VERSION = 3;
-export const RULES_VERSION = 6;
+export const RULES_VERSION = 8;
 
 export const LIFE_POINT_START = 2;
 export const LIFE_POINT_CAP = 4;
 export const LIFE_POINT_RECALL_GAIN = 1;
 export const MAX_RECALLS_PER_LIFE = 2;
-export const RECALL_AFTER_COUNTS = [3, 6] as const;
-export const MIN_ENCOUNTERS = 6;
-export const MAX_ENCOUNTERS = 8;
+export const RECALL_AFTER_COUNTS: readonly number[] = [3, 9];
+export const MIN_ENCOUNTERS = 12;
+export const MAX_ENCOUNTERS = 12;
+export const MOMENT_AGES = [8, 13, 17, 22, 29, 36, 44, 51, 59, 66, 73, 81] as const;
+export const CHAPTER_TITLES = ['最初相信的事', '走进别人的生活', '选择留下的重量', '把来路看清'] as const;
 export const BREAK_HABIT_COST = 1;
 export const PURSUE_OPPORTUNITY_COST = 2;
 export const MAX_CARRIED_UNDERSTANDINGS = 2;
@@ -55,6 +58,7 @@ export type HistoryRegionId = 'china-ancient' | 'china-modern' | 'west-ancient' 
 
 export type LifeStatus = 'active' | 'awaiting-archive' | 'settled';
 export type LifeTurnState =
+  | 'showing-result'
   | 'awaiting-response'
   | 'awaiting-recall'
   | 'awaiting-archive'
@@ -180,6 +184,7 @@ export interface SupportRule {
   requiredTags?: string[];
   anyFragmentTags?: string[];
   understandingIds?: string[];
+  understandingStances?: RecallStance[];
   ifUnsupported: 'hide' | 'cost-break';
 }
 
@@ -197,6 +202,7 @@ export interface EncounterOutcomeConfig {
   world: WorldChange;
   later: string;
   schedule?: ScheduledEncounterConfig[];
+  condition?: EncounterCondition;
 }
 
 export interface EncounterChoiceConfig {
@@ -214,6 +220,7 @@ export interface EncounterChoiceConfig {
 
 export interface EncounterTemplate {
   id: string;
+  chapter: number;
   theme: LifeTheme;
   crossThemes?: LifeTheme[];
   title: string;
@@ -228,6 +235,8 @@ export interface EncounterTemplate {
   triggerNote: string;
   condition?: EncounterCondition;
   choices: EncounterChoiceConfig[];
+  questionChoice?: EncounterChoiceConfig;
+  variants?: Array<{ condition: EncounterCondition; text: string }>;
 }
 
 export interface UnderstandingSeed {
@@ -237,6 +246,9 @@ export interface UnderstandingSeed {
   initial: string;
   revised: string;
   question: string;
+  revisedResponseTags?: string[];
+  matureRevised?: string;
+  matureQuestion?: string;
 }
 
 export interface TemperamentConfig {
@@ -341,9 +353,23 @@ export interface PendingEncounter {
 }
 
 export interface PendingRecallOption {
+  specialtyId?: string;
   stance: RecallStance;
   label: string;
   statement: string;
+  effectHint?: string;
+}
+
+export interface PendingResult {
+  instanceId: string;
+  fragmentId: string;
+  title: string;
+  response: string;
+  outcome: string;
+  consequence: string;
+  changes: string[];
+  costPaid: number;
+  sceneKind: ScenarioKind;
 }
 
 export interface PendingRecall {
@@ -387,6 +413,7 @@ export interface Understanding {
   theme: LifeTheme;
   statement: string;
   stance: RecallStance;
+  effectiveStance?: RecallStance;
   version: number;
   previousVersionId?: string;
   sourceFragmentIds: string[];
@@ -434,6 +461,8 @@ export interface CausalityRecord {
 }
 
 export interface LifeRun {
+  recentFeedback?: { sourceId: string; text: string; changes: string[] };
+  growth?: GrowthState;
   id: string;
   seed: number;
   rngState: number;
@@ -465,6 +494,7 @@ export interface LifeRun {
   scheduled: ScheduledEncounter[];
   pendingEncounter?: PendingEncounter;
   pendingRecall?: PendingRecall;
+  pendingResult?: PendingResult;
   closing?: LifeClosing;
   skippedYearNotes: string[];
 }

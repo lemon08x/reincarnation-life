@@ -6,20 +6,20 @@ export const SCENE_RATIO = 0.42;
 export const MIN_TOUCH_PX = 44;
 
 export const THEME = {
-  cream: rgb(255, 248, 238),
-  creamDeep: rgb(247, 236, 214),
+  cream: rgb(243, 241, 234),
+  creamDeep: rgb(222, 233, 225),
   sky: rgb(157, 214, 242),
   skyDeep: rgb(92, 168, 220),
   grass: rgb(123, 196, 127),
   grassDeep: rgb(86, 154, 96),
-  coral: rgb(255, 122, 89),
-  coralDeep: rgb(216, 74, 58),
-  ink: rgb(43, 38, 31),
-  muted: rgb(96, 86, 74),
+  coral: rgb(67, 120, 107),
+  coralDeep: rgb(37, 91, 80),
+  ink: rgb(38, 48, 44),
+  muted: rgb(103, 115, 108),
   faint: rgb(168, 156, 138),
   white: rgb(255, 252, 247),
-  panel: rgb(255, 251, 244),
-  panelBorder: rgb(226, 208, 182),
+  panel: rgb(252, 251, 246),
+  panelBorder: rgb(213, 219, 207),
   positive: rgb(46, 122, 86),
   disabled: rgb(186, 176, 162),
   shadow: rgba(43, 38, 31, 36),
@@ -28,8 +28,8 @@ export const THEME = {
 export const TYPE = {
   title: 36,
   subtitle: 22,
-  body: 22,
-  caption: 16,
+  body: 30,
+  caption: 22,
   numeric: 42,
 };
 
@@ -55,7 +55,8 @@ export function colorFromRgb(values: readonly [number, number, number], alpha = 
 }
 
 export function computeLayout(): SafeLayout {
-  const scale = Math.max(0.25, view.getVisibleSize().width / DESIGN_WIDTH);
+  const frameSize = view.getFrameSize();
+  const scale = Math.max(0.25, Math.min(frameSize.width / DESIGN_WIDTH, frameSize.height / DESIGN_HEIGHT));
   const minTouch = Math.ceil(MIN_TOUCH_PX / scale);
   let top = 28;
   let bottom = 28;

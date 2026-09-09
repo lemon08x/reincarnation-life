@@ -105,7 +105,7 @@ function natureWord(nature: MarkDef['nature']): string {
 }
 
 function unique(values: string[]): string[] {
-  return [...new Set(values.filter(Boolean))];
+  return Array.from(new Set(values.filter(Boolean)));
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {

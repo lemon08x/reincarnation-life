@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "814c28e9-1f4b-496d-9765-e87636689761",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "importerSettings": 0,
+    "simulateGlobals": [],
+    "moduleId": "project:///assets/scripts/core/growthSave.js"
+  }
+}

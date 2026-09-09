@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "c23803ba-d7ef-4968-8359-5c1d30c6a152",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "importerSettings": 0,
+    "simulateGlobals": [],
+    "moduleId": "project:///assets/scripts/core/growthEngine.js"
+  }
+}

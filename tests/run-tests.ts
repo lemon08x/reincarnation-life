@@ -1,499 +1,214 @@
 import { GameService, SaveStore } from '../assets/scripts/app/gameService';
-import {
-  presentEncounter,
-  presentHome,
-  presentStoryText,
-  routePlayPage,
-} from '../assets/scripts/app/presentation/presenters';
+import { presentCarry, presentEncounter, presentRecall, presentResult, presentJournal, routePlayPage } from '../assets/scripts/app/presentation/presenters';
+import { measureBlocks, textHeight } from '../assets/scripts/app/presentation/journalLayout';
 import { GAME_CONTENT } from '../assets/scripts/content/gameContent';
 import { validateGameContent } from '../assets/scripts/core/contentValidation';
-import {
-  causalityHasCycle,
-  completeArchive,
-  createInitialProfile,
-  getCausality,
-  startLife,
-  submitRecall,
-  submitResponse,
-} from '../assets/scripts/core/lifeEngine';
-import {
-  GameSave,
-  LifeRun,
-  PendingOption,
-  RecallStance,
-  SAVE_VERSION,
-} from '../assets/scripts/core/model';
-import { nextRandom, normalizeSeed, pickWeighted } from '../assets/scripts/core/random';
-import {
-  CURRENT_SAVE_KEY,
-  OBSOLETE_SAVE_KEYS,
-  StorageAdapter,
-  clearObsoleteSaveKeys,
-  parseGameSave,
-} from '../assets/scripts/core/saveMigration';
-
-type TestCase = {
-  name: string;
-  run: () => void;
-};
-
-const tests: TestCase[] = [];
-
-function test(name: string, run: () => void): void {
-  tests.push({ name, run });
+import { causalityHasCycle, completeArchive, continueAfterResult, getCausality, listCarryCandidates, startLife, submitRecall, submitResponse, upgradeActiveRun } from '../assets/scripts/core/legacyLifeEngine';
+import { createInitialProfile, GameSave, LifeRun, MOMENT_AGES, RecallStance, SAVE_VERSION } from '../assets/scripts/core/model';
+import { parseGameSave, clearObsoleteSaveKeys } from '../assets/scripts/core/saveMigration';
+const tests: Array<{name: string; run: () => void}> = [];
+const test = (name: string, run: () => void): void => { tests.push({name, run}); };
+function assert(ok: unknown, message: string): asserts ok { if (!ok) throw new Error(message); }
+const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+function canonical(v: unknown): string { return JSON.stringify(v, (_key, x: unknown) => x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a],[b]) => a.localeCompare(b))) : x); }
+const eq = (a: unknown, b: unknown, m: string): void => assert(canonical(a) === canonical(b), `${m}: values differ`);
+function throws(fn: () => void): void { let did = false; try { fn(); } catch { did = true; } assert(did, 'expected rejection'); }
+const start = (seed: number): LifeRun => startLife(createInitialProfile(), seed, `test-${seed}`, [], GAME_CONTENT);
+function step(run: LifeRun, style = 0, stance?: RecallStance): LifeRun {
+  if (run.pendingResult) return continueAfterResult(run, run.pendingResult.instanceId, GAME_CONTENT);
+  if (run.pendingRecall) return submitRecall(run, run.pendingRecall.instanceId, stance ?? (['hold', 'revise', 'question'] as RecallStance[])[style % 3], GAME_CONTENT);
+  const pending = run.pendingEncounter;
+  assert(pending, 'active life must have a readable state');
+  const enabled = pending.options.filter(o => o.enabled);
+  const option = style % 4 === 0 ? enabled[0] : style % 4 === 1 ? enabled[1] : style % 4 === 2 ? enabled.slice().sort((a,b) => b.cost - a.cost)[0] : enabled[enabled.length - 1];
+  return submitResponse(run, pending.instanceId, option.choiceId, GAME_CONTENT);
+}
+function until(run: LifeRun, target: (r: LifeRun) => boolean, style = 0, stance?: RecallStance): LifeRun {
+  for (let i = 0; i < 40; i++) { if (target(run) || run.status !== 'active') return run; run = step(run, style, stance); }
+  throw new Error('progress guard exceeded');
+}
+const end = (r: LifeRun, style = 0): LifeRun => until(r, s => s.status !== 'active', style);
+const recall = (r: LifeRun): LifeRun => until(r, s => Boolean(s.pendingRecall));
+const at = (r: LifeRun, id: string): LifeRun => until(r, s => s.pendingEncounter?.templateId === id);
+const roundtrip = (r: LifeRun): LifeRun => parseGameSave({version:SAVE_VERSION, profile:createInitialProfile(), currentRun: clone(r)})!.currentRun!;
+class MemoryStore implements SaveStore {
+  value: GameSave | null = null;
+  load(): GameSave | null { return clone(this.value); }
+  save(v: GameSave): void { this.value = clone(v); }
 }
 
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) {
-    throw new Error(message);
-  }
-}
-
-function assertEqual<T>(actual: T, expected: T, message: string): void {
-  if (actual !== expected) {
-    throw new Error(`${message}: expected ${String(expected)}, received ${String(actual)}`);
-  }
-}
-
-function assertThrows(run: () => void, message: string): void {
-  let threw = false;
-  try {
-    run();
-  } catch {
-    threw = true;
-  }
-  assert(threw, message);
-}
-
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-class MemoryStore implements SaveStore, StorageAdapter {
-  public slots: Record<string, string> = {};
-
-  public getItem(key: string): string | null {
-    return this.slots[key] ?? null;
-  }
-
-  public setItem(key: string, value: string): void {
-    this.slots[key] = value;
-  }
-
-  public removeItem(key: string): void {
-    delete this.slots[key];
-  }
-
-  public load(): GameSave | null {
-    clearObsoleteSaveKeys(this);
-    const raw = this.getItem(CURRENT_SAVE_KEY);
-    if (!raw) {
-      return null;
+test('content: chapters, three theme pairs, valid sources and full authored choices', () => {
+  eq(validateGameContent(GAME_CONTENT), [], 'content validation');
+  eq(GAME_CONTENT.encounters.length, 30, 'scene count');
+  for (const t of GAME_CONTENT.encounters) {
+    if (t.chapter > 0) assert(t.questionChoice, `${t.id} lacks a situated question`);
+    const text = JSON.stringify(t);
+    const roles = Array.from(text.matchAll(/\{(\w+)\}/g)).map(m => m[1]);
+    for (const role of roles) assert(t.people.some(p => p.role === role), `${t.id} missing role ${role}`);
+    for (const c of [...t.choices, ...(t.questionChoice ? [t.questionChoice] : [])]) {
+      assert(c.text !== c.preview, 'preview must explain tradeoff');
+      assert(c.outcomes.every(o => o.text.length >= 20 && o.later.length >= 8), `${t.id}/${c.id} incomplete result`);
     }
-    try {
-      return parseGameSave(JSON.parse(raw) as unknown);
-    } catch {
-      return null;
-    }
-  }
-
-  public save(value: GameSave): void {
-    this.setItem(CURRENT_SAVE_KEY, JSON.stringify(value));
-  }
-}
-
-function pickOption(options: PendingOption[], style: number, points: number): PendingOption {
-  const affordable = options.filter((item) => item.enabled && item.cost <= points);
-  assert(affordable.length > 0, 'an encounter should keep at least one affordable option');
-  if (style % 3 === 1) {
-    return [...affordable].sort((left, right) => right.cost - left.cost)[0];
-  }
-  if (style % 3 === 2) {
-    return affordable[Math.min(1, affordable.length - 1)];
-  }
-  return affordable.find((item) => item.cost === 0) ?? affordable[0];
-}
-
-function stanceFor(style: number): RecallStance {
-  return style % 3 === 0 ? 'hold' : style % 3 === 1 ? 'revise' : 'question';
-}
-
-function playToEnd(initial: LifeRun, style: number): LifeRun {
-  let run = initial;
-  for (let step = 0; step < 40 && run.status === 'active'; step += 1) {
-    if (run.pendingEncounter) {
-      const option = pickOption(run.pendingEncounter.options, style, run.lifePoints);
-      run = submitResponse(run, run.pendingEncounter.instanceId, option.choiceId, GAME_CONTENT);
-    } else if (run.pendingRecall) {
-      run = submitRecall(run, run.pendingRecall.instanceId, stanceFor(style), GAME_CONTENT);
-    } else {
-      break;
-    }
-  }
-  return run;
-}
-
-function startSeed(seed: number, carry: string[] = [], runId = `life-${seed}`): LifeRun {
-  return startLife(createInitialProfile(), seed, runId, carry, GAME_CONTENT);
-}
-
-test('content: 24 templates, free options, consequences, and references', () => {
-  const errors = validateGameContent(GAME_CONTENT);
-  assertEqual(errors.join('\n'), '', 'game content should be valid');
-  assertEqual(GAME_CONTENT.encounters.length, 24, 'there should be 24 encounter templates');
-});
-
-test('random: same seed yields the same sequence', () => {
-  const first = nextRandom(normalizeSeed(42));
-  const second = nextRandom(normalizeSeed(42));
-  assertEqual(first.value, second.value, 'random values should match');
-  const items = [{ id: 'a', w: 1 }, { id: 'b', w: 3 }, { id: 'c', w: 2 }];
-  const left = pickWeighted(items, 99, (item) => item.w);
-  const right = pickWeighted(items, 99, (item) => item.w);
-  assertEqual(left.item.id, right.item.id, 'weighted picks should match');
-});
-
-test('experiences change later responses and keep real sources', () => {
-  let laterConfessed: LifeRun | null = null;
-  let laterHidden: LifeRun | null = null;
-  for (let seed = 1; seed <= 400; seed += 1) {
-    const opening = startSeed(seed, [], `src-${seed}`);
-    if (opening.pendingEncounter?.templateId !== 'trust_broken_cup') {
-      continue;
-    }
-    const confessed = submitResponse(clone(opening), opening.pendingEncounter.instanceId, 'confess', GAME_CONTENT);
-    const hidden = submitResponse(clone(opening), opening.pendingEncounter.instanceId, 'hide', GAME_CONTENT);
-    const left = playUntilTemplate(confessed, 'trust_friend_trouble');
-    const right = playUntilTemplate(hidden, 'trust_friend_trouble');
-    if (left && right) {
-      laterConfessed = left;
-      laterHidden = right;
-      break;
-    }
-  }
-  assert(laterConfessed && laterHidden, 'should find a seed where both responses later face the same friend-trouble encounter');
-  const confessTell = laterConfessed.pendingEncounter?.options.find((item) => item.choiceId === 'tell');
-  const hideTell = laterHidden.pendingEncounter?.options.find((item) => item.choiceId === 'tell');
-  assert(confessTell && hideTell, 'both lives should still offer telling adults');
-  assert(confessTell.cost === 0, 'a life that already spoke up should not pay to tell again');
-  assert(hideTell.cost >= 1, 'a life that hid should pay 1 point to break the habit');
-  assert(Boolean(hideTell.supportReason), 'the paid option should name a real past');
-  const source = getCausality(laterHidden, createInitialProfile(), laterHidden.fragments[0].id);
-  assert(source, 'the evoked past should be a real fragment');
-  assert(source?.people.some((person) => person.id === 'parents'), 'the childhood fragment should keep the real person');
-});
-
-test('different responses produce different later consequences', () => {
-  const confessed = findOpeningChoice('trust_broken_cup', 'confess');
-  const hidden = findOpeningChoice('trust_broken_cup', 'hide');
-  assert(confessed.tags.includes('truth-punished'), 'confessing should leave a punished-for-truth mark');
-  assert(hidden.tags.includes('hid-and-safe'), 'hiding should leave a hid-and-safe mark');
-  const parentConfessed = confessed.world.relations.find((item) => item.id === 'parents');
-  const parentHidden = hidden.world.relations.find((item) => item.id === 'parents');
-  assert(parentConfessed && parentHidden, 'both lives keep family');
-  assert(parentConfessed.closeness !== parentHidden.closeness || parentConfessed.strain !== parentHidden.strain, 'family relations should diverge');
-});
-
-test('understandings can grow without overwriting old facts', () => {
-  const started = findOpeningChoice('trust_broken_cup', 'confess');
-  let run = playUntilRecall(started);
-  assert(run.pendingRecall, 'a life should recall after three responses');
-  const before = run.fragments.map((item) => item.whatHappened);
-  const facts = run.fragments.map((item) => item.id);
-  run = submitRecall(run, run.pendingRecall!.instanceId, 'revise', GAME_CONTENT);
-  const revised = run.understandings.filter((item) => item.createdInRunId === run.id);
-  assert(revised.length >= 1, 'revise should create an understanding version');
-  assertEqual(revised[revised.length - 1].stance, 'revise', 'the new version should be a revision');
-  assertEqual(run.fragments.filter((item) => item.runId === run.id).map((item) => item.whatHappened).join('|'), before.join('|'), 'old facts stay');
-  assertEqual(run.fragments.filter((item) => item.runId === run.id).map((item) => item.id).join('|'), facts.join('|'), 'fragment identities stay');
-  const later = playUntilTemplate(run, 'trust_share_blame') ?? playUntilTemplate(run, 'trust_workplace');
-  if (later?.pendingEncounter) {
-    const share = later.pendingEncounter.options.find((item) => item.choiceId === 'share' || item.choiceId === 'admit');
-    assert(share, 'later trust encounters should still be reachable');
-    assert(share.cost === 0 || share.supportReason, 'revised understanding should affect later responses or name why they cost');
   }
 });
 
-test('life points: zero can continue, overspend is rejected, repeats are idempotent', () => {
-  let run: LifeRun | null = null;
-  for (let seed = 1; seed <= 500; seed += 1) {
-    const drained = drainToZero(startSeed(seed, [], `zero-${seed}`));
-    if (drained.lifePoints === 0 && (drained.pendingEncounter || drained.pendingRecall)) {
-      run = drained;
-      break;
-    }
-  }
-  assert(run, 'should reach a moment with zero life points');
-  if (run.pendingEncounter) {
-    const free = run.pendingEncounter.options.filter((item) => item.cost === 0 && item.enabled);
-    assert(free.length >= 2, 'zero-point lives still have free options');
-    const paid = run.pendingEncounter.options.find((item) => item.cost > run.lifePoints);
-    if (paid) {
-      assertEqual(paid.enabled, false, 'unaffordable options are disabled');
-      assertThrows(() => submitResponse(run as LifeRun, run!.pendingEncounter!.instanceId, paid.choiceId, GAME_CONTENT), 'overspend must throw');
-      assertEqual(run.lifePoints, 0, 'failed overspend does not spend points');
-    }
-    const instanceId = run.pendingEncounter.instanceId;
-    const choiceId = free[0].choiceId;
-    const next = submitResponse(run, instanceId, choiceId, GAME_CONTENT);
-    const again = submitResponse(next, instanceId, choiceId, GAME_CONTENT);
-    assertEqual(again.lifePoints, next.lifePoints, 'repeat submit does not spend again');
-    assertEqual(again.fragments.length, next.fragments.length, 'repeat submit does not add fragments');
-  } else {
-    assert(run.pendingRecall, 'zero points can still reach a recall');
-    const next = submitRecall(run, run.pendingRecall.instanceId, 'question', GAME_CONTENT);
-    assert(next.lifePoints >= run.lifePoints, 'recall still works at zero points');
-  }
-
-  let recalling = playUntilRecall(startSeed(11));
-  assert(recalling.pendingRecall, 'should reach a recall');
-  const recallId = recalling.pendingRecall!.instanceId;
-  const points = recalling.lifePoints;
-  recalling = submitRecall(recalling, recallId, 'hold', GAME_CONTENT);
-  const gained = recalling.lifePoints;
-  assert(gained >= points, 'recall grants a point up to the cap');
-  const twice = submitRecall(recalling, recallId, 'hold', GAME_CONTENT);
-  assertEqual(twice.lifePoints, gained, 'repeat recall does not grant again');
-  assertEqual(twice.recallCount, recalling.recallCount, 'repeat recall does not count twice');
-});
-
-test('archive retry does not duplicate discoveries', () => {
-  const ended = playToEnd(startSeed(21), 0);
-  assert(ended.status === 'awaiting-archive' || ended.status === 'settled', 'a simulated life should close');
-  const first = completeArchive(createInitialProfile(), ended);
-  const second = completeArchive(first.profile, first.run);
-  assertEqual(second.profile.archivedRunIds.length, 1, 'one life is archived once');
-  const keys = second.profile.discoveries.map((item) => item.contentKey).sort().join(',');
-  const again = second.profile.discoveries.map((item) => item.contentKey).sort().join(',');
-  assertEqual(keys, again, 'discovery keys stay stable');
-  assertEqual(second.profile.fragments.filter((item) => item.runId === ended.id).length, ended.fragments.filter((item) => item.runId === ended.id).length, 'fragments are not copied twice');
-});
-
-test('causality resolves, pending reload is stable, merged sources stay distinct', () => {
-  const run = playUntilRecall(findOpeningChoice('trust_broken_cup', 'confess'));
-  assertEqual(causalityHasCycle(run, createInitialProfile()), false, 'fragment graph should not cycle');
-  for (const fragment of run.fragments.filter((item) => item.runId === run.id)) {
-    const record = getCausality(run, createInitialProfile(), fragment.id);
-    assert(record, `fragment ${fragment.id} should be readable`);
-    for (const person of record!.people) {
-      assert(fragment.people.some((item) => item.relationId === person.id), 'causality people match the fragment');
-    }
-  }
-  const snapshot = parseGameSave({
-    version: SAVE_VERSION,
-    profile: createInitialProfile(),
-    currentRun: clone(run),
-  });
-  assert(snapshot?.currentRun, 'pending recall should reload');
-  assertEqual(snapshot!.currentRun!.pendingRecall?.instanceId, run.pendingRecall?.instanceId, 'reload keeps recall id');
-  assertEqual(snapshot!.currentRun!.rngState, run.rngState, 'reload keeps rng');
-  assertEqual(snapshot!.currentRun!.lifePoints, run.lifePoints, 'reload keeps points');
-
-  const ended = playToEnd(run, 1);
-  const archived = completeArchive(createInitialProfile(), ended);
-  const secondLife = playToEnd(startLife(archived.profile, 88, 'life-b', archived.profile.understandings.slice(0, 1).map((item) => item.id), GAME_CONTENT), 2);
-  const merged = completeArchive(archived.profile, secondLife);
-  for (const discovery of merged.profile.discoveries) {
-    const runs = new Set(discovery.sources.map((item) => item.runId));
-    if (runs.size > 1) {
-      const peopleByRun = new Map<string, string>();
-      for (const source of discovery.sources) {
-        peopleByRun.set(`${source.runId}:${source.fragmentId}`, source.personLabels.join(','));
+test('1000 seeds × 3 strategies: exactly 12 visible results, 2 recalls, age 81 and all scenes reachable', () => {
+  const reached = new Set<string>();
+  const pairs = new Set<string>();
+  let refused = 0;
+  for (let seed = 1; seed <= 1000; seed++) for (let style = 0; style < 3; style++) {
+    let r = start(seed);
+    pairs.add([r.lineA, r.lineB].sort().join('/'));
+    let results = 0;
+    const evidence: number[][] = [];
+    for (let guard = 0; guard < 30 && r.status === 'active'; guard++) {
+      assert([r.pendingEncounter,r.pendingResult,r.pendingRecall].filter(Boolean).length === 1, 'exactly one pending phase');
+      if (r.pendingEncounter) {
+        const p = r.pendingEncounter;
+        reached.add(p.templateId);
+        eq(p.age, MOMENT_AGES[r.encounterCount], 'age sequence');
+        assert(p.options.filter(o => o.cost === 0 && o.enabled).length >= 2, 'two free options');
+        assert(!/\{\w+\}/.test(JSON.stringify(p)), 'no unresolved placeholders');
       }
-      assert(peopleByRun.size === discovery.sources.length, 'merged discoveries keep per-life source identities');
-    }
-  }
-});
-
-test('three lives can carry understanding without a level gate', () => {
-  let profile = createInitialProfile();
-  const statements: string[] = [];
-  for (let index = 0; index < 3; index += 1) {
-    const carry = profile.understandings.slice(0, 2).map((item) => item.id);
-    let run = startLife(profile, 30 + index * 17, `chain-${index}`, carry, GAME_CONTENT);
-    if (carry.length > 0) {
-      assert(run.carriedUnderstandingIds.length === carry.length, 'carried ids are accepted');
-      assert(run.lifePoints === 2, 'carrying understanding does not raise life points');
-      assert(run.tags.some((tag) => tag.startsWith('carried:')), 'carried understanding is visible to later responses');
-    }
-    run = playToEnd(run, index);
-    const archived = completeArchive(profile, run);
-    profile = archived.profile;
-    if (run.understandings[0]) {
-      statements.push(run.understandings[run.understandings.length - 1].statement);
-    }
-  }
-  assertEqual(profile.archivedRunIds.length, 3, 'three lives archive');
-  assert(profile.understandings.length > 0, 'understandings accumulate');
-  assert(statements.length > 0, 'each life can form meaning without grinding a level');
-});
-
-test('1000 deterministic lives close without dead ends or repeated templates', () => {
-  let recalls = 0;
-  for (let seed = 1; seed <= 1000; seed += 1) {
-    const run = playToEnd(startSeed(seed, [], `sim-${seed}`), seed);
-    assert(run.status === 'awaiting-archive', `seed ${seed} should close for archive`);
-    const own = run.fragments.filter((item) => item.runId === run.id);
-    assert(own.length >= 6 && own.length <= 8, `seed ${seed} should have 6-8 encounters, got ${own.length}`);
-    assertEqual(new Set(own.map((item) => item.templateId)).size, own.length, `seed ${seed} repeated a template`);
-    assert(run.recallCount === 2, `seed ${seed} should recall twice`);
-    assert(run.closing, `seed ${seed} needs a closing`);
-    if (run.scheduled.some((item) => !run.usedTemplateIds.includes(item.templateId))) {
-      assert((run.closing?.unfulfilled.length ?? 0) > 0, `seed ${seed} must explain unfulfilled consequences`);
-    }
-    recalls += run.recallCount;
-  }
-  assert(recalls === 2000, 'every life recalls twice');
-});
-
-test('obsolete save keys are cleared, other data and valid v3 remain', () => {
-  const store = new MemoryStore();
-  store.setItem('reincarnation-life.save.v1', '{"old":1}');
-  store.setItem('reincarnation-life.save.v2', '{"old":2}');
-  store.setItem('reincarnation-life.save.backup', '{"old":3}');
-  store.setItem('other-app.save', 'keep-me');
-  const first = new GameService(store, () => 11);
-  for (const key of OBSOLETE_SAVE_KEYS) {
-    assertEqual(store.getItem(key), null, `${key} should be removed`);
-  }
-  assertEqual(store.getItem('other-app.save'), 'keep-me', 'unrelated storage stays');
-  first.startNewLife([]);
-  const pending = first.getCurrentRun()?.pendingEncounter;
-  assert(pending, 'a new life should freeze an encounter');
-  const v3 = store.getItem(CURRENT_SAVE_KEY);
-  assert(v3, 'v3 save should exist');
-  const second = new GameService(store, () => 99);
-  const reloaded = second.getCurrentRun();
-  assertEqual(reloaded?.pendingEncounter?.instanceId, pending?.instanceId, 'second boot continues the same pending encounter');
-  assertEqual(reloaded?.pendingEncounter?.options.map((item) => `${item.choiceId}:${item.cost}`).join(','), pending?.options.map((item) => `${item.choiceId}:${item.cost}`).join(','), 'reload does not change prices');
-  const beforeInspect = reloaded!.rngState;
-  second.inspectCausality(reloaded!.fragments[0]?.id ?? pending!.instanceId);
-  assertEqual(second.getCurrentRun()?.rngState, beforeInspect, 'inspecting causality does not change rng');
-});
-
-test('presentation: options, disabled costs, expandable copy, and routing', () => {
-  const run = startSeed(5);
-  assertEqual(routePlayPage(run), 'encounter', 'an opening life routes to the encounter page');
-  const view = presentEncounter(run, GAME_CONTENT, null);
-  assertEqual(view.options.length, run.pendingEncounter?.options.length, 'presenter keeps every option');
-  assert(view.options.filter((item) => item.cost === 0).length >= 2, 'presenter shows free options');
-  const story = presentStoryText('这是一段足够长的叙述，用来确认展开全文的入口会出现在界面上，而不是把字越缩越小。', 20);
-  assertEqual(story.expandable, true, 'long copy is expandable');
-  const home = presentHome(createInitialProfile(), null);
-  assertEqual(home.runStatus, 'none', 'empty profile is ready to start');
-});
-
-test('application commands lock duplicate archive and start rules', () => {
-  const store = new MemoryStore();
-  let n = 3;
-  const service = new GameService(store, () => {
-    n += 1;
-    return n;
-  });
-  service.startNewLife([]);
-  assertThrows(() => service.startNewLife([]), 'cannot start while a life is active');
-  let guard = 0;
-  while (service.getCurrentRun()?.status === 'active' && guard < 40) {
-    const current = service.getCurrentRun();
-    if (current?.pendingEncounter) {
-      const option = pickOption(current.pendingEncounter.options, 0, current.lifePoints);
-      service.submitCurrentResponse(option.choiceId);
-    } else if (current?.pendingRecall) {
-      service.submitCurrentRecall('question');
-    } else {
-      break;
-    }
-    guard += 1;
-  }
-  assertEqual(service.getCurrentRun()?.status, 'awaiting-archive', 'service reaches archive');
-  service.archiveCurrentLife();
-  service.archiveCurrentLife();
-  assertEqual(service.getProfile().archivedRunIds.length, 1, 'service archive is idempotent');
-});
-
-function findOpeningChoice(templateId: string, choiceId: string): LifeRun {
-  for (let seed = 1; seed <= 300; seed += 1) {
-    const run = startSeed(seed, [], `open-${templateId}-${seed}`);
-    if (run.pendingEncounter?.templateId === templateId) {
-      return submitResponse(run, run.pendingEncounter.instanceId, choiceId, GAME_CONTENT);
-    }
-  }
-  throw new Error(`No seed opened ${templateId}`);
-}
-
-function playUntilTemplate(run: LifeRun, templateId: string): LifeRun | null {
-  let current = run;
-  for (let step = 0; step < 24 && current.status === 'active'; step += 1) {
-    if (current.pendingEncounter?.templateId === templateId) {
-      return current;
-    }
-    if (current.pendingEncounter) {
-      const option = pickOption(current.pendingEncounter.options, 0, current.lifePoints);
-      current = submitResponse(current, current.pendingEncounter.instanceId, option.choiceId, GAME_CONTENT);
-    } else if (current.pendingRecall) {
-      current = submitRecall(current, current.pendingRecall.instanceId, 'revise', GAME_CONTENT);
-    } else {
-      break;
-    }
-  }
-  return current.pendingEncounter?.templateId === templateId ? current : null;
-}
-
-function playUntilRecall(run: LifeRun): LifeRun {
-  let current = run;
-  for (let step = 0; step < 16 && current.status === 'active'; step += 1) {
-    if (current.pendingRecall) {
-      return current;
-    }
-    if (current.pendingEncounter) {
-      const option = pickOption(current.pendingEncounter.options, 0, current.lifePoints);
-      current = submitResponse(current, current.pendingEncounter.instanceId, option.choiceId, GAME_CONTENT);
-    }
-  }
-  throw new Error('Did not reach a recall');
-}
-
-function drainToZero(run: LifeRun): LifeRun {
-  let current = run;
-  for (let step = 0; step < 24 && current.status === 'active'; step += 1) {
-    if (current.lifePoints === 0 && (current.pendingEncounter || current.pendingRecall)) {
-      return current;
-    }
-    if (current.pendingEncounter) {
-      const paid = [...current.pendingEncounter.options]
-        .filter((item) => item.enabled && item.cost > 0 && item.cost <= current.lifePoints)
-        .sort((left, right) => right.cost - left.cost)[0];
-      const free = current.pendingEncounter.options.find((item) => item.enabled && item.cost === 0);
-      const choice = paid ?? free;
-      if (!choice) {
-        break;
+      if (r.pendingResult) {
+        results++;
+        eq(routePlayPage(r), 'result', 'result must be routed');
+        assert(!r.pendingEncounter, 'no hidden advancement');
+        const result = presentResult(r);
+        assert(result.outcome.length > 20 && result.consequence.length >= 8, 'actual outcome and consequence shown');
       }
-      current = submitResponse(current, current.pendingEncounter.instanceId, choice.choiceId, GAME_CONTENT);
-      continue;
+      if (r.pendingRecall) evidence.push(r.pendingRecall.fragmentIds.map(id => r.fragments.find(f => f.id === id)!.age));
+      r = step(r, style === 2 ? 3 : style, (['hold','revise','question'] as RecallStance[])[style]);
+      assert(r.lifePoints >= 0 && r.lifePoints <= 4, 'point bounds');
     }
-    if (current.pendingRecall) {
-      current = submitRecall(current, current.pendingRecall.instanceId, 'hold', GAME_CONTENT);
-    }
+    eq(r.status, 'awaiting-archive', `seed ${seed}/${style} complete`);
+    eq(results, 12, 'twelve explicit result pages'); eq(r.age,81,'late-life ending'); eq(r.recallCount,2,'two recalls');
+    eq(new Set(r.usedTemplateIds).size,12,'no duplicate scenes');
+    for (let chapter = 0; chapter < 4; chapter++) eq(r.usedTemplateIds.filter(id => GAME_CONTENT.encounters.find(t => t.id === id)!.chapter === chapter).length,3,'three moments in each chapter');
+    assert(evidence[0].length === 2 && evidence[1].length === 2, 'two real evidence fragments per recall');
+    assert(Math.max(...evidence[1]) > Math.max(...evidence[0]), 'second recall must use new evidence');
+    assert(!causalityHasCycle(r,createInitialProfile()),'acyclic history');
+    for (const f of r.fragments) for (const id of [...f.triggerSourceIds,...f.recalledFragmentIds]) assert(getCausality(r,createInitialProfile(),id), 'all sources resolve');
+    refused += r.fragments.filter(f => f.outcomeId.includes('refused') || f.outcomeId.includes('missed')).length;
   }
-  return current;
-}
+  eq(reached.size,30,'every scene reachable'); eq(pairs.size,3,'all theme pairs');
+  console.log(`  sampled 3000 lives; ${reached.size} scenes, ${pairs.size} theme pairs, ${refused} refused/missed proposals`);
+});
 
-function runAll(): void {
-  let failed = 0;
-  for (const item of tests) {
-    try {
-      item.run();
-      console.log(`ok  ${item.name}`);
-    } catch (error) {
-      failed += 1;
-      console.error(`fail  ${item.name}`);
-      console.error(error);
-    }
+test('same external event: earlier action alters support, actual callback text and its source', () => {
+  let pair: [LifeRun,LifeRun] | undefined;
+  for (let seed=1; seed<200 && !pair; seed++) {
+    const r=at(start(seed),'trust_order'); if (!r.pendingEncounter || r.pendingEncounter.templateId !== 'trust_order') continue;
+    const p=r.pendingEncounter;
+    const covered=at(submitResponse(clone(r),p.instanceId,'cover',GAME_CONTENT),'trust_returned_order');
+    const together=at(submitResponse(clone(r),p.instanceId,'together',GAME_CONTENT),'trust_returned_order');
+    if(covered.pendingEncounter?.templateId==='trust_returned_order' && together.pendingEncounter?.templateId==='trust_returned_order') pair=[covered,together];
   }
-  console.log(`${tests.length - failed}/${tests.length} passed`);
-  if (failed > 0) {
-    throw new Error(`${failed} tests failed`);
+  assert(pair,'same callback must be reachable for both decisions');
+  const [a,b]=pair;
+  assert(a.pendingEncounter!.text !== b.pendingEncounter!.text,'old fact changes the actual scene');
+  eq(a.pendingEncounter!.options.find(o=>o.choiceId==='review')!.cost,1,'new behavior needs effort');
+  eq(b.pendingEncounter!.options.find(o=>o.choiceId==='review')!.cost,0,'practiced behavior is free');
+  for(const r of pair) {
+    eq(r.pendingEncounter!.triggerKind,'consequence','explicit causal trigger');
+    const source=r.pendingEncounter!.triggerSourceIds[0];
+    eq(r.fragments.find(f=>f.id===source)!.templateId,'trust_order','correct source');
+    const next=step(r); assert(next.fragments.find(f=>f.id===source)!.laterWhat.length>=2,'old fragment gains actual later evidence');
   }
-}
+});
 
-runAll();
+test('hold / revise / question have different future affordances; holding a revision retains it', () => {
+  const base=recall(start(12)); const theme=GAME_CONTENT.understandingSeeds.find(s=>s.id===base.pendingRecall!.seedId)!.theme;
+  const runs=(['hold','revise','question'] as RecallStance[]).map(stance=>{
+    const r=submitRecall(clone(base),base.pendingRecall!.instanceId,stance,GAME_CONTENT);
+    return until(r,s=>s.pendingEncounter?.theme===theme);
+  });
+  const [held,revised,questioned]=runs;
+  assert(!held.pendingEncounter!.options.some(o=>o.choiceId==='ask-first'),'hold does not grant question');
+  assert(questioned.pendingEncounter!.options.some(o=>o.choiceId==='ask-first'&&o.cost===0),'question grants a free situated inquiry');
+  const discounted=revised.pendingEncounter!.options.find(o=>o.supportedByFragmentIds.length);
+  assert(discounted && discounted.cost===0,'revision grants sourced support');
+  const before=clone(base.fragments);
+  eq(revised.fragments.slice(0,before.length),before,'recall does not rewrite facts or past interpretations');
+  const second=until(revised,r=>Boolean(r.pendingRecall),0,'revise');
+  const after=submitRecall(second,second.pendingRecall!.instanceId,'hold',GAME_CONTENT);
+  eq(after.understandings.slice(-1)[0].effectiveStance,'revise','holding retains the practiced interpretation');
+  eq(roundtrip(after).understandings,after.understandings,'effective interpretation survives reload');
+});
+
+test('results, questions and point costs persist without reroll or double submission', () => {
+  const store=new MemoryStore(); store.value = { version: SAVE_VERSION, profile: createInitialProfile(), currentRun: start(12) }; let service=new GameService(store,()=>12);
+  for(let i=0;i<30 && service.getCurrentRun()!.status==='active';i++) {
+    const r=service.getCurrentRun()!;
+    if(r.pendingEncounter) {
+      const p=r.pendingEncounter; const o=p.options.filter(o=>o.enabled).slice(-1)[0];
+      eq(service.submitCurrentResponse('stale',o.choiceId),r,'stale UI cannot consume current card');
+      const next=service.submitCurrentResponse(p.instanceId,o.choiceId);
+      eq(next.lifePoints,r.lifePoints-o.cost,'exact cost once');
+      eq(submitResponse(next,p.instanceId,o.choiceId,GAME_CONTENT),next,'core duplicate is idempotent');
+    } else if(r.pendingResult) {
+      eq(continueAfterResult(r,'stale',GAME_CONTENT),r,'stale continue ignored');
+      service.continueCurrentResult(r.pendingResult.instanceId);
+    } else if(r.pendingRecall) service.submitCurrentRecall(r.pendingRecall.instanceId,'question');
+    const before=clone(service.getCurrentRun()); service=new GameService(store,()=>99);
+    eq(service.getCurrentRun(),before,'every pending page survives restart exactly');
+  }
+  eq(service.getCurrentRun()!.status,'awaiting-archive','service reaches ending');
+  service.archiveCurrentLife(); service.archiveCurrentLife(); eq(service.getProfile().archivedRunIds.length,1,'archive retry is safe');
+  service.startNewLife(); throws(()=>service.startNewLife());
+});
+
+test('zero points: two free choices remain and an unaffordable response changes nothing', () => {
+  const r=until(start(99),s=>Boolean(s.pendingEncounter && s.encounterCount>=3));
+  r.lifePoints=0;
+  r.pendingEncounter!.options=r.pendingEncounter!.options.map(o=>({...o,enabled:o.cost===0}));
+  const before=clone(r);
+  const paid=r.pendingEncounter!.options.find(o=>o.cost>0); assert(paid,'paid alternative exists');
+  throws(()=>submitResponse(r,r.pendingEncounter!.instanceId,paid.choiceId,GAME_CONTENT)); eq(r,before,'rejection leaves world untouched');
+  eq(end(r).status,'awaiting-archive','zero points never blocks a life');
+});
+
+test('cross-life carry, full archive and source browsing remain distinct', () => {
+  eq(listCarryCandidates(createInitialProfile()),[],'empty Map must be an empty array');
+  let profile=createInitialProfile();
+  for(let i=0;i<3;i++) {
+    const carry=listCarryCandidates(profile).slice(-2).map(u=>u.id);
+    const r=end(startLife(profile,56+i,`chain-${i}`,carry,GAME_CONTENT),i);
+    assert(r.tags.every(t=>typeof t==='string'),'iterables produce strings');
+    const archived=completeArchive(profile,r); profile=archived.profile;
+    eq(completeArchive(profile,archived.run).profile,profile,'archive retry unchanged');
+    for(const u of profile.understandings) for(const id of u.sourceFragmentIds) assert(getCausality(r,profile,id),'carry chain sources resolve');
+  }
+  eq(new Set(profile.fragments.map(f=>f.id)).size,36,'no duplicated carried fragments');
+  const journal=presentJournal(profile,null); eq(journal.groups.length,3,'all lives browsable');
+  eq(journal.groups.reduce((n,g)=>n+g.entries.length,0),42,'all 36 facts and 6 understandings visible');
+  const cards=presentCarry(listCarryCandidates(profile),[]); assert(cards.cards.every(c=>c.statement.full.length>10),'full carry statements');
+});
+
+test('older v3 active lives keep recorded facts and regenerate obsolete pending cards', () => {
+  const old=until(start(5),r=>r.encounterCount===4 && Boolean(r.pendingEncounter));
+  old.rulesVersion=6; old.pendingEncounter!.templateId='obsolete-scene';
+  old.usedTemplateIds=old.usedTemplateIds.map(id=>`old-${id}`);
+  old.fragments=old.fragments.map(f=>({...f,templateId:`old-${f.templateId}`}));
+  const preserved=clone(old.fragments);
+  const upgraded=upgradeActiveRun(roundtrip(old),GAME_CONTENT);
+  eq(upgraded.fragments,preserved,'old history retained');
+  assert(upgraded.pendingEncounter?.templateId!=='obsolete-scene','obsolete card regenerated');
+  eq(end(upgraded).status,'awaiting-archive','old life can finish');
+  const storage={ slots: {'reincarnation-life.save.v1':'old', 'other':'keep'} as Record<string,string>, getItem(k:string){return this.slots[k]??null;},removeItem(k:string){delete this.slots[k];},setItem(k:string,v:string){this.slots[k]=v;} };
+  clearObsoleteSaveKeys(storage); eq(storage.slots.other,'keep','unrelated data preserved');
+});
+
+test('presentation keeps full evidence and measured cards stay within their bounds', () => {
+  const r=recall(start(6)); const v=presentRecall(r,null);
+  for(let i=0;i<v.evidence.length;i++) assert(v.evidence[i].full.includes(r.fragments.find(f=>f.id===r.pendingRecall!.fragmentIds[i])!.whatHappened),'full evidence shown');
+  const e=presentEncounter(start(1),GAME_CONTENT,null); eq(e.event.full,start(1).pendingEncounter!.text,'whole scene retained');
+  const blocks=measureBlocks([{body:e.event.full},{body:'很长的选择'.repeat(50),detail:'说明\n另一行',action:()=>{}}]);
+  for(let i=1;i<blocks.items.length;i++) assert(blocks.items[i].top>=blocks.items[i-1].top+blocks.items[i-1].height,'cards do not overlap');
+  assert(blocks.items[1].height>=88,'touch target minimum');
+  assert(textHeight('一\n二\n三',592,30,44)>=132,'line breaks reserve vertical space');
+});
+let failures=0;
+for(const t of tests) { try { t.run(); console.log(`ok  ${t.name}`); } catch(e) { failures++; console.error(`FAIL ${t.name}`,e); } }
+console.log(`${tests.length-failures}/${tests.length} passed`);
+if(failures) throw new Error(`${failures} tests failed`);

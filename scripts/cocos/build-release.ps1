@@ -10,7 +10,9 @@ param(
     [ValidateRange(1, 120)]
     [int]$TimeoutMinutes = 15,
 
-    [switch]$AllowVersionMismatch
+    [switch]$AllowVersionMismatch,
+
+    [switch]$VerifyRelease
 )
 
 Set-StrictMode -Version Latest
@@ -364,6 +366,10 @@ foreach ($build in $builds) {
         -Platform $build.Platform `
         -ConfigPath $runtimeConfigPath `
         -RequiredFiles $build.RequiredFiles
+    if ($build.Platform -eq 'web-mobile' -and $VerifyRelease) {
+        & node (Join-Path $projectRoot 'scripts\verify-release.cjs') (Join-Path $buildRoot 'web-mobile')
+        if ($LASTEXITCODE -ne 0) { throw 'Compiled release verification failed.' }
+    }
 }
 
 if ($builds.Platform -contains 'wechatgame') {

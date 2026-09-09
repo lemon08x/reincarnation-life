@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "3528ead7-63b0-48b4-8199-5cad28707982",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "importerSettings": 0,
+    "moduleId": "project:///assets/scripts/content/compactCopy.js",
+    "simulateGlobals": []
+  }
+}

@@ -1,4 +1,6 @@
 import { formatMarkList, getMarkDef, markName } from '../../core/lifeMarks';
+import { compactStory } from '../../content/compactCopy';
+import { ABILITIES, ABILITY_NAMES, GROWTH_CHAPTERS, GROWTH_RECALLS, PLACE_NAMES, SKILL_NAMES } from '../../core/growthModel';
 import { formatWorldSummary } from '../../core/lifeWorld';
 import {
   CausalityRecord,
@@ -9,6 +11,8 @@ import {
   RecallStance,
   ReincarnatorProfile,
   Understanding,
+  CHAPTER_TITLES,
+  RECALL_AFTER_COUNTS,
   themeLabel,
 } from '../../core/model';
 import {
@@ -23,7 +27,10 @@ import {
   MarkStripView,
   PlayPage,
   RecallPageView,
+  ResultPageView,
+  JournalPageView,
   TruncatedText,
+  GrowthHud,
 } from './uiModels';
 import { SCENE_VISUALS, ageBand, getSceneVisual } from './visualConfig';
 
@@ -31,7 +38,7 @@ export const STORY_PREVIEW_CHARS = 48;
 export const MARK_STRIP_LIMIT = 3;
 
 export function presentStoryText(full: string, maxChars = STORY_PREVIEW_CHARS): TruncatedText {
-  const trimmed = full.replace(/\s+/g, ' ').trim();
+  const trimmed = full.trim();
   if (trimmed.length <= maxChars) {
     return { preview: trimmed, full: trimmed, expandable: false };
   }
@@ -53,6 +60,7 @@ export function routePlayPage(run: LifeRun | null): PlayPage {
   if (run.turnState === 'awaiting-recall') {
     return 'recall';
   }
+  if (run.turnState === 'showing-result') return 'result';
   if (run.turnState === 'awaiting-response') {
     return 'encounter';
   }
@@ -102,12 +110,12 @@ export function presentHome(
     discoveryCount: profile.discoveries.length,
     runStatus: status,
     continueCaption: status === 'active'
-      ? `进行中 · 约 ${run?.age ?? 0} 岁 · 人生点 ${run?.lifePoints ?? 0}`
+      ? run?.growth ? `${run.age} 岁 · ${PLACE_NAMES[run.growth.place]} · ${run.growth.identity}` : `旧人生续玩 · ${run?.age ?? 0} 岁 · 人生点 ${run?.lifePoints ?? 0}`
       : status === 'awaiting-archive'
         ? '把这一世的经历收入档案'
         : undefined,
     archiveLine: profile.archivedRunIds.length === 0
-      ? '还没有收入档案的经历。第一次回望不需要上一世的收藏。'
+      ? '从一段新的生活开始。这一世的本领，会由你自己积下。'
       : `${profile.archivedRunIds.length} 世已收入 · ${profile.discoveries.length} 条理解`,
     lastTitle: profile.lastClosing?.title,
     scene: SCENE_VISUALS.hearth,
@@ -146,13 +154,18 @@ export function presentEncounter(
     throw new Error('There is no pending encounter to present.');
   }
   return {
+    growth: presentGrowthHud(run),
+    feedback: run.recentFeedback,
+    instanceId: pending.instanceId,
+    chapter: (run.growth ? GROWTH_CHAPTERS : CHAPTER_TITLES)[Math.min(3, Math.floor(run.encounterCount / 3))],
+    progress: `第 ${Math.min(4, Math.floor(run.encounterCount / 3) + 1)} 章 · 时刻 ${run.encounterCount + 1} / 12`,
     title: pending.title,
     age: pending.age,
     ageBand: ageBand(pending.age),
     lifePoints: run.lifePoints,
     lifePointCap: run.lifePointCap,
-    worldLine: formatWorldSummary(run.world),
-    event: presentStoryText(pending.text, 72),
+    worldLine: run.growth ? `${PLACE_NAMES[run.growth.place]} · ${run.growth.identity}` : formatWorldSummary(run.world),
+    event: presentStoryText(run.growth ? compactStory(pending.templateId, pending.text) : pending.text, 72),
     triggerNote: presentStoryText(pending.triggerNote, 40),
     triggerKind: pending.triggerKind,
     marks: presentMarks(run.marks, content),
@@ -167,13 +180,14 @@ export function presentEncounter(
       cost: option.cost,
       costLabel: option.cost === 0
         ? undefined
-        : option.costKind === 'pursue-opportunity'
+        : run.growth ? `家底 ${option.cost}` : option.costKind === 'pursue-opportunity'
           ? `争取 · ${option.cost} 点`
           : `突破 · ${option.cost} 点`,
       supportReason: option.supportReason,
       enabled: option.enabled,
       disabledReason: option.disabledReason,
       selected: selectedId === option.choiceId,
+      sourceIds: option.supportedByFragmentIds,
     })),
     selectedId,
     canConfirm: Boolean(selectedId && pending.options.some((item) => item.choiceId === selectedId && item.enabled)),
@@ -192,9 +206,12 @@ export function presentRecall(
   }
   const evidence = pending.fragmentIds.map((id) => {
     const fragment = run.fragments.find((item) => item.id === id);
-    return presentStoryText(fragment ? `${fragment.age} 岁：${fragment.howIResponded}` : '一段作为证据的经历', 56);
+    return presentStoryText(fragment ? `${fragment.age} 岁 · ${fragment.whatHappened}\n\n你当时的回应：${fragment.howIResponded}\n留下的变化：${fragment.laterWhat[0] ?? ''}` : '一段作为证据的经历', 56);
   });
   return {
+    growthMode: Boolean(run.growth),
+    feedback: run.recentFeedback,
+    instanceId: pending.instanceId,
     prompt: presentStoryText(pending.prompt, 70),
     evidence,
     age: run.age,
@@ -205,9 +222,10 @@ export function presentRecall(
       label: option.label,
       statement: presentStoryText(option.statement, 48),
       selected: selectedStance === option.stance,
+      effectHint: option.effectHint ?? '',
     })),
     selectedStance,
-    canConfirm: selectedStance !== null,
+    canConfirm: pending.options.some(o => o.stance === selectedStance),
     scene: SCENE_VISUALS.dusk,
   };
 }
@@ -232,12 +250,14 @@ export function presentEnding(run: LifeRun, content: GameContent): EndingPageVie
     throw new Error('There is no closing to present.');
   }
   return {
+    growthMode: Boolean(run.growth),
+    feedback: run.recentFeedback,
     title: closing.title,
     text: presentStoryText(closing.text, 70),
     age: run.age,
     ageBand: ageBand(run.age),
     worldLine: formatWorldSummary(run.world) || formatMarkList(run.marks, content.marks),
-    shapedBy: closing.shapedBy.slice(0, 6).map((item) => presentStoryText(item, 42)),
+    shapedBy: closing.shapedBy.map((item) => presentStoryText(item, 42)),
     changed: closing.changed,
     unresolved: closing.unresolved,
     unfulfilled: closing.unfulfilled,
@@ -246,4 +266,39 @@ export function presentEnding(run: LifeRun, content: GameContent): EndingPageVie
   };
 }
 
+export function presentResult(run: LifeRun): ResultPageView {
+  const result = run.pendingResult;
+  if (!result) throw new Error('没有等待阅读的结果。');
+  return { ...result, age: run.age, ageBand: ageBand(run.age), scene: getSceneVisual(result.sceneKind),
+    growth: presentGrowthHud(run),
+    pointLine: run.growth ? `现在的家底 ${run.growth.money}${result.costPaid ? ` · 本次支付 ${result.costPaid}` : ' · 本次无额外开支'}` : `${result.costPaid ? `这次用了 ${result.costPaid} 点心力` : '这次没有消耗人生点'} · 还剩 ${run.lifePoints} / ${run.lifePointCap} 点`,
+    continueLabel: ((run.growth ? GROWTH_RECALLS : RECALL_AFTER_COUNTS) as readonly number[]).includes(run.encounterCount) ? run.growth ? '从经历中，形成自己的方法' : '停下来，回望这些经历' : run.encounterCount === 12 ? '翻到这一生的末页' : '带着这件事，继续生活',
+  };
+}
 
+export function presentJournal(profile: ReincarnatorProfile, run: LifeRun | null): JournalPageView {
+  const ids = Array.from(new Set([...(run ? [run.id] : []), ...profile.archivedRunIds.slice().reverse()]));
+  return { characterSummary: run?.growth ? [ `${PLACE_NAMES[run.growth.place]} · ${run.growth.identity}`, ABILITIES.map(a => `${ABILITY_NAMES[a]} ${run.growth!.abilities[a]} / 6`).join('  ·  '), `家底 ${run.growth.money}`, `本领：${run.growth.skills.map(s => SKILL_NAMES[s]).join('、') || '正在学习'}`, `专长：${run.growth.specialties.map(s => s.name).join('、') || '从经历中慢慢形成'}`, presentGrowthHud(run)!.goal ].join('\n') : undefined,
+    groups: ids.map(id => {
+    const fragments = (id === run?.id ? run.fragments : profile.fragments).filter(f => f.runId === id);
+    const understandings = (id === run?.id ? run.understandings : profile.understandings).filter(u => u.createdInRunId === id);
+    const number = profile.archivedRunIds.indexOf(id);
+    return { title: id === run?.id && run.status === 'active' ? '正在经历的这一世' : `第 ${number >= 0 ? number + 1 : profile.archivedRunIds.length + 1} 世`,
+      entries: [
+        ...fragments.map(f => ({ id: f.id, age: f.age, label: `${f.age} 岁 · 经历`, text: f.whatHappened })),
+        ...understandings.map(u => ({ id: u.id, age: u.createdAtAge, label: u.contentKey.startsWith('specialty:') ? `${u.createdAtAge} 岁 · 形成的方法` : `${u.createdAtAge} 岁 · ${themeLabel(u.theme)}的理解 · 第 ${u.version} 次`, text: u.statement })),
+      ].sort((a, b) => a.age - b.age),
+    };
+  }) };
+}
+
+export function presentGrowthHud(run: LifeRun): GrowthHud | undefined {
+  const g = run.growth;
+  if (!g) return undefined;
+  const best = [...ABILITIES].sort((a, b) => g.abilities[b] - g.abilities[a]).slice(0, 2);
+  const goal = g.goal ? `${g.goal.status === 'complete' ? '已做成' : '眼前打算'}：${g.goal.title}`
+    : run.encounterCount < 3 ? '先学会一些办法，往后的路还未写好'
+    : `为往后准备：${g.intention === 'earn' ? '积攒家底' : g.intention === 'explore' ? '寻找新的机会' : '继续学本领'}`;
+  return { identity: g.identity, place: PLACE_NAMES[g.place], summary: `${best.map(a => `${ABILITY_NAMES[a]} ${g.abilities[a]}`).join('    ')}    家底 ${g.money}`,
+    goal, progress: run.encounterCount / 12, specialties: g.specialties.map(s => s.name) };
+}

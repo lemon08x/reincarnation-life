@@ -1,10 +1,12 @@
-import { MarkNature, RecallStance, ScenarioKind, TriggerKind } from '../../core/model';
+import { LifeRun, MarkNature, RecallStance, ScenarioKind, TriggerKind } from '../../core/model';
 import { CharacterAgeBand, SceneVisual } from './visualConfig';
 
 export type PlayPage =
   | 'home'
   | 'carry'
   | 'encounter'
+  | 'result'
+  | 'journal'
   | 'recall'
   | 'causality'
   | 'ending';
@@ -79,9 +81,15 @@ export interface ResponseOptionView {
   enabled: boolean;
   disabledReason?: string;
   selected: boolean;
+  sourceIds: string[];
 }
 
 export interface EncounterPageView {
+  feedback?: LifeRun['recentFeedback'];
+  growth?: GrowthHud;
+  instanceId: string;
+  chapter: string;
+  progress: string;
   title: string;
   age: number;
   ageBand: CharacterAgeBand;
@@ -105,9 +113,13 @@ export interface RecallOptionView {
   label: string;
   statement: TruncatedText;
   selected: boolean;
+  effectHint: string;
 }
 
 export interface RecallPageView {
+  feedback?: LifeRun['recentFeedback'];
+  growthMode?: boolean;
+  instanceId: string;
   prompt: TruncatedText;
   evidence: TruncatedText[];
   age: number;
@@ -117,6 +129,27 @@ export interface RecallPageView {
   selectedStance: RecallStance | null;
   canConfirm: boolean;
   scene: SceneVisual;
+}
+
+export interface ResultPageView {
+  growth?: GrowthHud;
+  changes?: string[];
+  instanceId: string;
+  fragmentId: string;
+  title: string;
+  age: number;
+  response: string;
+  outcome: string;
+  consequence: string;
+  pointLine: string;
+  continueLabel: string;
+  scene: SceneVisual;
+  ageBand: CharacterAgeBand;
+}
+
+export interface JournalPageView {
+  characterSummary?: string;
+  groups: Array<{ title: string; entries: Array<{ id: string; label: string; text: string }> }>;
 }
 
 export interface CausalityPageView {
@@ -132,6 +165,8 @@ export interface CausalityPageView {
 }
 
 export interface EndingPageView {
+  feedback?: LifeRun['recentFeedback'];
+  growthMode?: boolean;
   title: string;
   text: TruncatedText;
   age: number;
@@ -143,4 +178,13 @@ export interface EndingPageView {
   unfulfilled: string[];
   pendingArchive: boolean;
   scene: SceneVisual;
+}
+
+export interface GrowthHud {
+  identity: string;
+  place: string;
+  summary: string;
+  goal: string;
+  progress: number;
+  specialties: string[];
 }

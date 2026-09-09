@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "a4a2db53-fcee-4e2f-b06f-97999e15705c",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "importerSettings": 0,
+    "simulateGlobals": [],
+    "moduleId": "project:///assets/scripts/core/legacyLifeEngine.js"
+  }
+}

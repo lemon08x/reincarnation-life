@@ -1,6 +1,6 @@
 {
   "name": "reincarnation-life",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "A Cocos Creator text game about living repeated lives shaped by experience and meaning.",
   "type": "2d",
@@ -9,13 +9,16 @@
     "version": "3.8.8"
   },
   "scripts": {
+    "preview": "node scripts/preview.cjs",
     "cocos": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/cocos/start.ps1",
     "build:release": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/cocos/build-release.ps1",
     "build:web": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/cocos/build-release.ps1 -Target Web",
     "build:wechat": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/cocos/build-release.ps1 -Target Wechat",
     "typecheck": "tsc -p tsconfig.verify.json --noEmit",
-    "test:core": "tsc -p tsconfig.test.json && node .test-dist/tests/run-tests.js",
-    "test": "npm run typecheck && npm run test:core"
+    "test:core": "tsc -p tsconfig.test.json && node .test-dist/tests/run-tests.js && node .test-dist/tests/growth-tests.js && node .test-dist/tests/family-tests.js",
+    "test": "npm run typecheck && npm run test:core",
+    "test:release": "node scripts/verify-release.cjs",
+    "test:smoke": "tsc -p tsconfig.test.json && node scripts/verify-play.cjs && node scripts/verify-family.cjs"
   },
   "devDependencies": {
     "@cocos/creator-types": "3.8.8",

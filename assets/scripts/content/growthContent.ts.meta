@@ -1,0 +1,13 @@
+{
+  "ver": "4.0.24",
+  "importer": "typescript",
+  "imported": true,
+  "uuid": "18458e48-aaba-4cfd-88d6-1fbacc8b02cb",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "importerSettings": 0,
+    "simulateGlobals": [],
+    "moduleId": "project:///assets/scripts/content/growthContent.js"
+  }
+}

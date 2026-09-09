@@ -1,319 +1,220 @@
 import { _decorator, Component, ResolutionPolicy, view } from 'cc';
+import { FamilyService } from './app/familyService';
 import { GameService } from './app/gameService';
-import {
-  presentCarry,
-  presentCausality,
-  presentEncounter,
-  presentEnding,
-  presentHome,
-  presentRecall,
-  routePlayPage,
-} from './app/presentation/presenters';
-import { RecallStance } from './core/model';
+import { presentFamilyEvent, presentFamilyHistory, presentFamilyHome, presentFamilyMember, presentFamilySettlement } from './app/presentation/familyPresenters';
+import { presentCausality, presentEncounter, presentEnding, presentHome, presentRecall, presentJournal, routePlayPage } from './app/presentation/presenters';
+import { CocosFamilySaveStore } from './platform/cocosFamilySaveStore';
 import { CocosSaveStore } from './platform/cocosSaveStore';
 import { UiKit } from './ui/kit';
-import {
-  renderCarry,
-  renderCausality,
-  renderEncounter,
-  renderEnding,
-  renderError,
-  renderHome,
-  renderOverlay,
-  renderRecall,
-} from './ui/pages';
+import { FamilyPageActions, renderFamilyEvent, renderFamilyHistory, renderFamilyHome, renderFamilyMember, renderFamilySettlement } from './ui/familyPages';
+import { PageActions, renderCausality, renderEncounter, renderEnding, renderError, renderHome, renderOverlay, renderRecall, renderJournal } from './ui/pages';
 import { DESIGN_HEIGHT, DESIGN_WIDTH } from './ui/theme';
 
 const { ccclass } = _decorator;
-
 @ccclass('GameApp')
 export class GameApp extends Component {
   private service!: GameService;
+  private familyService!: FamilyService;
   private kit!: UiKit;
   private submitting = false;
-  private selectedChoiceId: string | null = null;
-  private selectedRecall: RecallStance | null = null;
-  private selectedCarryIds: string[] = [];
-  private browseId: string | null = null;
-  private returnPage: 'encounter' | 'recall' | 'ending' | 'home' = 'home';
-  private overlay: { title: string; body: string } | null = null;
-  private lastEncounterKey = '';
+  private nextActionAt = 0;
+  private redraw: () => void = () => {};
+  private seedFactory = () => ((Date.now() >>> 0) ^ (Math.floor(Math.random() * 0xffffffff) >>> 0)) >>> 0 || 1;
 
   public start(): void {
     view.setDesignResolutionSize(DESIGN_WIDTH, DESIGN_HEIGHT, ResolutionPolicy.SHOW_ALL);
-    this.service = new GameService(new CocosSaveStore(), () => this.createSeed());
     this.kit = new UiKit(this, this.node);
-    this.renderHome();
+    try {
+      this.service = new GameService(new CocosSaveStore(), this.seedFactory);
+      this.familyService = new FamilyService(new CocosFamilySaveStore(), this.seedFactory);
+      if (!this.familyService.hasFamily()) this.familyService.startFamily();
+      this.renderFamilyHome();
+      view.on('canvas-resize', this.onResize, this);
+    } catch (error) { this.renderError(error); }
+  }
+  public onDestroy(): void { view.off('canvas-resize', this.onResize, this); this.kit?.clearPage(); }
+  private onResize(): void { this.scheduleOnce(() => this.redraw(), 0); }
+
+  private legacyActions(back: () => void): PageActions {
+    return { goHome: () => this.renderHome(), expand: (_key, title, body) => this.showOverlay(title, body), journal: () => this.renderJournal(back) };
   }
 
-  public onDestroy(): void {
-    this.kit?.clearPage();
+  private familyActions(): FamilyPageActions {
+    return {
+      goLegacy: () => this.renderHome(),
+      showHistory: () => this.renderFamilyHistory(),
+      showMember: () => this.renderFamilyMember(),
+      expand: (_key, title, body) => this.showOverlay(title, body),
+    };
   }
+
+  private resume(): void { this.runCommand(() => { this.service.resumeCurrentLife(); this.renderLife(); }); }
+  private newLife(): void { this.runCommand(() => { this.service.startNewLife([]); this.renderLife(); }); }
 
   private renderHome(): void {
-    this.overlay = null;
-    const viewModel = presentHome(this.service.getProfile(), this.service.getCurrentRun());
-    renderHome(this.kit, viewModel, {
-      goHome: () => this.renderHome(),
-      expand: (_key, title, body) => this.showOverlay(title, body),
-      continueLife: () => this.renderLife(),
-      archiveLife: () => this.runCommand(() => {
-        this.service.archiveCurrentLife();
-        this.renderEnding();
-      }),
-      startLife: () => this.openCarryOrStart(),
-      lastResult: () => this.renderEnding(),
-    });
-  }
-
-  private openCarryOrStart(): void {
-    const candidates = this.service.listCarryCandidates();
-    if (candidates.length === 0) {
-      this.runCommand(() => {
-        this.service.startNewLife([]);
-        this.renderLife();
-      });
-      return;
-    }
-    this.selectedCarryIds = [];
-    this.renderCarry();
-  }
-
-  private renderCarry(): void {
-    const viewModel = presentCarry(this.service.listCarryCandidates(), this.selectedCarryIds);
-    renderCarry(this.kit, viewModel, {
-      goHome: () => this.renderHome(),
-      expand: (_key, title, body) => this.showOverlay(title, body),
-      toggle: (id) => {
-        if (this.selectedCarryIds.includes(id)) {
-          this.selectedCarryIds = this.selectedCarryIds.filter((item) => item !== id);
-        } else if (this.selectedCarryIds.length < 2) {
-          this.selectedCarryIds = [...this.selectedCarryIds, id];
-        }
-        this.renderCarry();
+    this.redraw = () => this.renderHome();
+    const hasFamily = this.familyService.hasFamily();
+    renderHome(this.kit, presentHome(this.service.getProfile(), this.service.getCurrentRun()), {
+      ...this.legacyActions(() => this.renderHome()),
+      continueLife: () => this.resume(),
+      startLife: () => this.newLife(),
+      lastResult: () => this.resume(),
+      family: {
+        label: hasFamily ? '回到家庭 ›' : '经营一个家庭 ›',
+        action: () => this.familyModeEntry(),
       },
-      begin: () => this.runCommand(() => {
-        this.service.startNewLife(this.selectedCarryIds);
-        this.renderLife();
-      }),
-      skip: () => this.runCommand(() => {
-        this.service.startNewLife([]);
-        this.renderLife();
-      }),
     });
-    this.paintOverlay();
+  }
+
+  private familyModeEntry(): void {
+    this.runCommand(() => {
+      if (!this.familyService.hasFamily()) {
+        this.familyService.startFamily();
+      }
+      this.renderFamilyHome();
+    });
   }
 
   private renderLife(): void {
-    const run = this.service.getCurrentRun();
-    const page = routePlayPage(run);
-    if (page === 'ending') {
-      this.renderEnding();
-      return;
-    }
-    if (page === 'recall') {
-      this.renderRecall();
-      return;
-    }
-    if (page === 'encounter') {
-      this.renderEncounter();
-      return;
-    }
-    this.renderHome();
+    const page = routePlayPage(this.service.getCurrentRun());
+    if (page === 'encounter') this.renderEncounter();
+    else if (page === 'recall') this.renderRecall();
+    else if (page === 'ending') this.renderEnding();
+    else this.renderHome();
   }
+
+  // ---------- 家庭模式 ----------
+
+  private renderFamilyHome(): void {
+    this.redraw = () => this.renderFamilyHome();
+    const actions = this.familyActions();
+    const view = presentFamilyHome(
+      this.familyService.saveSnapshot(),
+      this.familyService.getContent(),
+      this.familyService.getEligibleBuildings(),
+    );
+    renderFamilyHome(this.kit, view, {
+      ...actions,
+      build: id => this.runCommand(() => { this.familyService.build(id); this.renderFamilyHome(); }),
+      continueRun: () => this.runCommand(() => this.renderFamilyRoute()),
+      startNext: () => this.runCommand(() => { this.familyService.startNextGeneration(); this.renderFamilyRoute(); }),
+      viewSettlement: () => this.renderFamilySettlement(),
+    });
+  }
+
+  private renderFamilyRoute(): void {
+    const run = this.familyService.getCurrentRun();
+    if (!run) return this.renderFamilyHome();
+    if (run.status === 'settled') return this.renderFamilySettlement();
+    if (run.pendingEvent) return this.renderFamilyEvent();
+    this.renderFamilyHome();
+  }
+
+  private renderFamilyEvent(): void {
+    this.redraw = () => this.renderFamilyEvent();
+    const run = this.familyService.getCurrentRun();
+    if (!run?.pendingEvent) return this.renderFamilyHome();
+    const actions = this.familyActions();
+    renderFamilyEvent(this.kit, presentFamilyEvent(this.familyService.saveSnapshot(), this.familyService.getContent()), {
+      ...actions,
+      backHome: () => this.renderFamilyHome(),
+      select: optionId => this.runCommand(() => {
+        this.familyService.chooseAndAdvance(run.pendingEvent!.instanceId, optionId);
+        this.renderFamilyRoute();
+      }),
+    });
+  }
+
+  private renderFamilySettlement(): void {
+    this.redraw = () => this.renderFamilySettlement();
+    const settlement = this.familyService.getLastSettlement();
+    if (!settlement) return this.renderFamilyHome();
+    const actions = this.familyActions();
+    renderFamilySettlement(this.kit, presentFamilySettlement(this.familyService.saveSnapshot(), this.familyService.getContent()), {
+      ...actions,
+      backHome: () => this.renderFamilyHome(),
+    });
+  }
+
+  private renderFamilyHistory(): void {
+    this.redraw = () => this.renderFamilyHistory();
+    renderFamilyHistory(this.kit, presentFamilyHistory(this.familyService.saveSnapshot()), {
+      ...this.familyActions(),
+      back: () => this.renderFamilyHome(),
+    });
+  }
+
+  private renderFamilyMember(): void {
+    this.redraw = () => this.renderFamilyMember();
+    const back = () => {
+      const run = this.familyService.getCurrentRun();
+      if (run?.status === 'active' && run.pendingEvent) this.renderFamilyEvent();
+      else this.renderFamilyHome();
+    };
+    renderFamilyMember(this.kit, presentFamilyMember(this.familyService.saveSnapshot(), this.familyService.getContent()), {
+      ...this.familyActions(),
+      back,
+    });
+  }
+
+  // ---------- 旧轮回模式 ----------
 
   private renderEncounter(): void {
+    this.redraw = () => this.renderEncounter();
     const run = this.service.getCurrentRun();
-    if (!run?.pendingEncounter || run.status !== 'active') {
-      this.renderLife();
-      return;
-    }
-    if (this.lastEncounterKey !== run.pendingEncounter.instanceId) {
-      this.lastEncounterKey = run.pendingEncounter.instanceId;
-      this.selectedChoiceId = null;
-    }
-    const viewModel = presentEncounter(run, this.service.getContent(), this.selectedChoiceId);
-    renderEncounter(this.kit, viewModel, {
-      goHome: () => this.renderHome(),
-      expand: (_key, title, body) => this.showOverlay(title, body),
-      select: (id) => {
-        this.selectedChoiceId = id;
-        this.renderEncounter();
-      },
-      confirm: () => {
-        if (!this.selectedChoiceId) {
-          return;
-        }
-        this.runCommand(() => {
-          this.service.submitCurrentResponse(this.selectedChoiceId as string);
-          this.selectedChoiceId = null;
-          this.renderLife();
-        });
-      },
-      openPast: (id) => this.openCausality(id, 'encounter'),
+    if (!run?.pendingEncounter) return this.renderHome();
+    const instance = run.pendingEncounter.instanceId;
+    renderEncounter(this.kit, presentEncounter(run, this.service.getContent(), null), {
+      ...this.legacyActions(() => this.renderEncounter()),
+      select: id => this.runCommand(() => { this.service.chooseAndAdvance(instance, id); this.renderLife(); }),
+      openPast: id => this.renderCausality(id, () => this.renderEncounter()),
     });
-    this.paintOverlay();
   }
-
   private renderRecall(): void {
+    this.redraw = () => this.renderRecall();
     const run = this.service.getCurrentRun();
-    if (!run?.pendingRecall || run.status !== 'active') {
-      this.renderLife();
-      return;
-    }
-    const viewModel = presentRecall(run, this.selectedRecall);
-    renderRecall(this.kit, viewModel, {
-      goHome: () => this.renderHome(),
-      expand: (_key, title, body) => this.showOverlay(title, body),
-      select: (stance) => {
-        this.selectedRecall = stance;
-        this.renderRecall();
-      },
-      confirm: () => {
-        if (!this.selectedRecall) {
-          return;
-        }
-        this.runCommand(() => {
-          this.service.submitCurrentRecall(this.selectedRecall as RecallStance);
-          this.selectedRecall = null;
-          this.renderLife();
-        });
-      },
-      openPast: (index) => {
-        const id = run.pendingRecall?.fragmentIds[index];
-        if (id) {
-          this.openCausality(id, 'recall');
-        }
-      },
+    if (!run?.pendingRecall) return this.renderHome();
+    const instance = run.pendingRecall.instanceId;
+    renderRecall(this.kit, presentRecall(run, null), {
+      ...this.legacyActions(() => this.renderRecall()),
+      select: stance => this.runCommand(() => { this.service.chooseRecallAndAdvance(instance, stance); this.renderLife(); }),
+      openPast: id => this.renderCausality(id, () => this.renderRecall()),
     });
-    this.paintOverlay();
   }
-
   private renderEnding(): void {
+    this.redraw = () => this.renderEnding();
     const run = this.service.getCurrentRun();
-    if (!run?.closing) {
-      this.renderError(new Error('当前没有可展示的人生收束。'));
-      return;
-    }
-    const viewModel = presentEnding(run, this.service.getContent());
-    renderEnding(this.kit, viewModel, {
-      goHome: () => this.renderHome(),
-      expand: (_key, title, body) => this.showOverlay(title, body),
-      archive: () => this.runCommand(() => {
-        this.service.archiveCurrentLife();
-        this.openCarryOrStart();
-      }),
-      nextLife: () => this.openCarryOrStart(),
+    if (!run?.closing) return this.renderHome();
+    renderEnding(this.kit, presentEnding(run, this.service.getContent()), {
+      ...this.legacyActions(() => this.renderEnding()), nextLife: () => this.newLife(),
+      openPast: id => this.renderCausality(id, () => this.renderEnding()),
     });
-    this.paintOverlay();
   }
-
-  private openCausality(id: string, from: 'encounter' | 'recall' | 'ending' | 'home'): void {
-    this.browseId = id;
-    this.returnPage = from;
-    this.renderCausality();
+  private renderJournal(back: () => void): void {
+    this.redraw = () => this.renderJournal(back);
+    renderJournal(this.kit, presentJournal(this.service.getProfile(), this.service.getCurrentRun()), {
+      ...this.legacyActions(back), journal: undefined, back, openPast: id => this.renderCausality(id, () => this.renderJournal(back)),
+    });
   }
-
-  private renderCausality(): void {
-    const id = this.browseId;
-    if (!id) {
-      this.returnFromCausality();
-      return;
-    }
+  private renderCausality(id: string, back: () => void): void {
+    this.redraw = () => this.renderCausality(id, back);
     const record = this.service.inspectCausality(id);
-    if (!record) {
-      this.showOverlay('往事', '这段记录暂时找不到了。');
-      this.returnFromCausality();
-      return;
-    }
-    const viewModel = presentCausality(record);
-    renderCausality(this.kit, viewModel, {
-      goHome: () => this.renderHome(),
-      expand: (_key, title, body) => this.showOverlay(title, body),
-      back: () => this.returnFromCausality(),
-      openSource: (sourceId) => this.openCausality(sourceId, this.returnPage),
+    if (!record) { this.showOverlay('往事', '暂时找不到这段记录。'); return; }
+    renderCausality(this.kit, presentCausality(record), {
+      ...this.legacyActions(() => this.renderCausality(id, back)), back,
+      openSource: source => this.renderCausality(source, () => this.renderCausality(id, back)),
     });
-    this.paintOverlay();
   }
-
-  private returnFromCausality(): void {
-    this.browseId = null;
-    if (this.returnPage === 'recall') {
-      this.renderRecall();
-      return;
-    }
-    if (this.returnPage === 'ending') {
-      this.renderEnding();
-      return;
-    }
-    if (this.returnPage === 'encounter') {
-      this.renderEncounter();
-      return;
-    }
-    this.renderHome();
-  }
-
+  private showOverlay(title: string, body: string): void { renderOverlay(this.kit, title, body, () => {}); }
   private renderError(error: unknown): void {
-    const message = error instanceof Error ? error.message : String(error);
     console.error(error);
-    renderError(this.kit, message, () => this.renderHome());
+    renderError(this.kit, error instanceof Error ? error.message : String(error), () => { if (this.service) this.renderHome(); });
   }
-
-  private showOverlay(title: string, body: string): void {
-    this.overlay = { title, body };
-    this.paintOverlay();
-  }
-
-  private paintOverlay(): void {
-    if (!this.overlay) {
-      return;
-    }
-    const current = this.overlay;
-    renderOverlay(this.kit, current.title, current.body, () => {
-      this.overlay = null;
-      this.refreshCurrent();
-    });
-  }
-
-  private refreshCurrent(): void {
-    const name = this.kit.pageName;
-    if (name === 'home') {
-      this.renderHome();
-      return;
-    }
-    if (name === 'carry') {
-      this.renderCarry();
-      return;
-    }
-    if (name === 'causality') {
-      this.renderCausality();
-      return;
-    }
-    if (name === 'ending') {
-      this.renderEnding();
-      return;
-    }
-    this.renderLife();
-  }
-
   private runCommand(work: () => void): void {
-    if (this.submitting) {
-      return;
-    }
+    if (this.submitting || Date.now() < this.nextActionAt) return;
     this.submitting = true;
-    try {
-      work();
-    } catch (error) {
-      this.renderError(error);
-    } finally {
-      this.submitting = false;
-    }
-  }
-
-  private createSeed(): number {
-    const timePart = Date.now() >>> 0;
-    const randomPart = Math.floor(Math.random() * 0xffff_ffff) >>> 0;
-    const seed = (timePart ^ randomPart) >>> 0;
-    return seed === 0 ? 1 : seed;
+    try { work(); this.nextActionAt = Date.now() + 240; }
+    catch (error) { this.renderError(error); }
+    finally { this.submitting = false; }
   }
 }

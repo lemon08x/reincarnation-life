@@ -23,6 +23,8 @@
     "2d",
     "ui",
     "graphics",
+    "mask",
+    "tween",
     "custom-pipeline"
   ],
   "packages": {

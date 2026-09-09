@@ -32,6 +32,7 @@ const FACT_LABELS: Record<string, Record<string, string>> = {
     traveling: '在路上',
     moving: '迁居中',
     returned: '归来',
+    between: '在两地之间生活',
   },
   household: {
     stable: '安稳日子',
@@ -590,7 +591,7 @@ function emptyPressures(): WorldPressures {
 }
 
 function unique<T>(values: T[]): T[] {
-  return [...new Set(values.filter((item) => Boolean(item)))];
+  return Array.from(new Set(values.filter((item) => Boolean(item))));
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {

@@ -32,10 +32,11 @@ export class CocosSaveStore implements SaveStore {
       return null;
     }
     try {
-      return parseGameSave(JSON.parse(raw) as unknown);
+      const parsed = parseGameSave(JSON.parse(raw) as unknown);
+      if (!parsed) throw new Error('存档字段不完整');
+      return parsed;
     } catch {
-      console.warn('存档无法解析，已保留原文件，未覆盖。');
-      return null;
+      throw new Error('存档无法完整载入，原存档已保留。请勿清除应用数据。');
     }
   }
 

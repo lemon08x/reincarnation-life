@@ -1,5 +1,5 @@
 import { GameContent } from '../core/model';
-import { ENCOUNTERS, TEMPERAMENTS, UNDERSTANDING_SEEDS } from './encounterContent';
+import { ENCOUNTERS, TEMPERAMENTS, UNDERSTANDING_SEEDS } from './storyContent';
 import { HISTORY_FIGURES, HISTORY_REGIONS } from './historyContent';
 import { MARKS } from './markContent';
 

@@ -1,5 +1,5 @@
 import { Color, Graphics, Node } from 'cc';
-import { CharacterAgeBand, FigureVisual, RegionVisual, SceneVisual } from '../app/presentation/visualConfig';
+import { CharacterAgeBand, FigureVisual, RegionVisual, SceneVisual, SCENE_VISUALS } from '../app/presentation/visualConfig';
 import { UiKit } from './kit';
 import { colorFromRgb, rgba } from './theme';
 
@@ -31,13 +31,108 @@ export function drawGateScene(kit: UiKit, parent: Node, x: number, y: number, sp
   return node;
 }
 
+export interface FamilyHomeSceneSpec {
+  houseLevel: number; // 生活保障等级
+  assetLevel: number; // 生产资产等级
+  educationLevel: number; // 教育与家学等级
+  reputationLevel: number; // 声誉与联系等级
+  eraIndex: number;
+  width?: number;
+  height?: number;
+}
+
+// 家园场景：随家庭建设改变。低饱和暖底色，屋舍、工具、工作间随等级出现或改善。
+export function drawFamilyHomeScene(kit: UiKit, parent: Node, x: number, y: number, spec: FamilyHomeSceneSpec): Node {
+  const width = spec.width ?? 648;
+  const height = spec.height ?? 190;
+  const node = kit.createNode(parent, 'FamilyHomeScene', x, y, width, height);
+  const g = node.addComponent(Graphics);
+  const palette = SCENE_VISUALS.hearth.palette;
+  // 天空
+  const skyTop = shift(palette.skyTop, [150, 190, 220], Math.min(1, spec.eraIndex * 0.12));
+  const skyBottom = palette.skyBottom;
+  paintSky(g, width, height, skyTop, skyBottom);
+  // 地面
+  paintGround(g, width, height, palette.ground, palette.groundDark, palette.shadow);
+  // 屋舍：随生活保障等级改善
+  const houseWall = spec.houseLevel >= 1 ? shift(palette.building, [255, 244, 224], 0.25) : shift(palette.building, [186, 176, 158], -0.15);
+  const houseRoof = spec.houseLevel >= 1 ? palette.buildingDark : [140, 128, 112] as const;
+  paintHouse(g, -width * 0.2, -height * 0.02, 230, 160, houseWall, houseRoof, palette.interior);
+  if (spec.houseLevel >= 2) {
+    // 储备棚
+    g.fillColor = colorFromRgb([196, 168, 122]);
+    g.roundRect(-width * 0.38, -height * 0.24, 64, 52, 8);
+    g.fill();
+    g.fillColor = colorFromRgb(palette.buildingDark);
+    g.roundRect(-width * 0.38, -height * 0.28, 64, 10, 4);
+    g.fill();
+  }
+  // 工作间：随生产资产出现
+  if (spec.assetLevel >= 1) {
+    paintWorkshop(g, width * 0.26, -height * 0.04, palette.building, palette.buildingDark, palette.accent);
+  }
+  if (spec.assetLevel >= 2) {
+    g.fillColor = colorFromRgb(palette.accent);
+    g.roundRect(width * 0.26 - 40, -height * 0.04 + 62, 80, 16, 4);
+    g.fill();
+  }
+  // 家学：书柜随教育等级出现
+  if (spec.educationLevel >= 1) {
+    paintBookshelf(g, width * 0.1, -height * 0.3, palette.buildingDark, palette.interior);
+  }
+  // 声誉：招牌随声誉出现
+  if (spec.reputationLevel >= 1) {
+    paintShopSign(g, -width * 0.02, -height * 0.32, palette.accent);
+  }
+  // 树与前景
+  paintTree(g, width * 0.42, -height * 0.02, palette.foliage, palette.buildingDark);
+  g.fillColor = colorFromRgb(palette.foliage, 160);
+  g.circle(-width * 0.44, -height * 0.34, 26);
+  g.fill();
+  g.circle(width * 0.44, -height * 0.36, 22);
+  g.fill();
+  return node;
+}
+
+function paintBookshelf(g: Graphics, x: number, y: number, wood: readonly [number, number, number], interior: readonly [number, number, number]): void {
+  g.fillColor = colorFromRgb(wood);
+  g.roundRect(x - 26, y - 34, 52, 66, 4);
+  g.fill();
+  g.fillColor = colorFromRgb(interior);
+  for (let row = 0; row < 3; row += 1) {
+    g.rect(x - 20, y - 26 + row * 20, 40, 16);
+    g.fill();
+    g.fillColor = colorFromRgb([168, 120, 86]);
+    for (let col = 0; col < 3; col += 1) {
+      g.roundRect(x - 16 + col * 13, y - 24 + row * 20, 9, 12, 2);
+      g.fill();
+    }
+  }
+}
+
+function paintShopSign(g: Graphics, x: number, y: number, accent: readonly [number, number, number]): void {
+  g.fillColor = colorFromRgb([196, 168, 122]);
+  g.roundRect(x - 56, y - 14, 112, 28, 6);
+  g.fill();
+  g.fillColor = colorFromRgb(accent);
+  g.roundRect(x - 50, y - 10, 100, 20, 4);
+  g.fill();
+  g.strokeColor = new Color(255, 252, 247, 255);
+  g.lineWidth = 3;
+  g.moveTo(x - 40, y);
+  g.lineTo(x - 26, y);
+  g.moveTo(x - 33, y - 5);
+  g.lineTo(x - 33, y + 5);
+  g.stroke();
+}
+
 export function drawScene(kit: UiKit, parent: Node, x: number, y: number, spec: SceneDrawSpec): Node {
   const node = kit.createNode(parent, `Scene:${spec.visual.kind}`, x, y, spec.width, spec.height);
   const graphics = node.addComponent(Graphics);
   paintScene(graphics, spec);
   const actor = kit.createNode(node, 'Actor', 0, -spec.height * 0.08, 180, 240);
   const actorGfx = actor.addComponent(Graphics);
-  paintCharacter(actorGfx, spec, 0, 0);
+  paintCharacter(actorGfx, spec, 0, 0, Math.min(1, spec.height / 300));
   kit.animate((time) => {
     actor.setPosition(0, -spec.height * 0.08 + Math.sin(time * 2.1) * 4, 0);
   });

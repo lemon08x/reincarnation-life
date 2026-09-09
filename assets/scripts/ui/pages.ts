@@ -1,331 +1,194 @@
-import { Button, Node } from 'cc';
-import { getFigureVisual } from '../app/presentation/visualConfig';
-import {
-  CarryPageView,
-  CausalityPageView,
-  EncounterPageView,
-  EndingPageView,
-  HomeView,
-  MarkChipView,
-  MarkStripView,
-  RecallPageView,
-  TruncatedText,
-} from '../app/presentation/uiModels';
+import { Button, Label } from 'cc';
+import { getFigureVisual, SCENE_VISUALS, SceneVisual, CharacterAgeBand } from '../app/presentation/visualConfig';
+import { CarryPageView, CausalityPageView, EncounterPageView, EndingPageView, HomeView, RecallPageView, ResultPageView, JournalPageView, GrowthHud } from '../app/presentation/uiModels';
+import { JournalBlock, measureBlocks, textHeight } from '../app/presentation/journalLayout';
 import { UiKit } from './kit';
-import { drawGateScene, drawMarkBadge, drawScene } from './sceneArt';
-import { THEME, TYPE, colorFromRgb } from './theme';
+import { drawScene } from './sceneArt';
+import { THEME } from './theme';
 
 export interface PageActions {
   goHome: () => void;
   expand: (key: string, title: string, body: string) => void;
+  journal?: () => void;
 }
-
-export function renderHome(
-  kit: UiKit,
-  view: HomeView,
-  actions: PageActions & {
-    continueLife: () => void;
-    archiveLife: () => void;
-    startLife: () => void;
-    lastResult: () => void;
-  },
-): void {
-  const { hud, scene } = kit.beginPage('home');
+interface Footer { text: string; action: () => void; enabled?: boolean; hint?: string }
+function page(kit: UiKit, key: string, title: string, subtitle: string, blocks: JournalBlock[], actions: PageActions,
+  footer: Footer, visual?: SceneVisual, band: CharacterAgeBand = 'adult', back?: () => void, growth?: GrowthHud): void {
+  const { hud, scene } = kit.beginPage(key);
   const top = 640 - kit.layout.top;
-  const sceneH = kit.layout.sceneHeight;
-  const sceneY = top - 36 - sceneH / 2;
-  drawGateScene(kit, scene, 0, sceneY, {
-    visual: view.scene,
-    width: 680,
-    height: sceneH,
-    ageBand: view.ageBand,
-    figure: getFigureVisual(),
-  });
-  kit.label(hud, '轮　回', 0, top - 8, 600, 40, TYPE.caption + 2, THEME.ink, true, true);
-
-  const cardY = sceneY - sceneH / 2 - 130;
-  const card = kit.panel(hud, 0, cardY, 640, 220, THEME.panel, 24, THEME.panelBorder);
-  kit.label(card, view.archiveLine, 0, 70, 580, 36, TYPE.subtitle, THEME.ink, true, true);
-  kit.label(card, '经历会留下，理解可以改口。事实不会被覆盖。', 0, 28, 580, 32, TYPE.caption, THEME.muted, true);
-  if (view.discoveries[0]) {
-    kit.label(card, view.discoveries[0].statement.preview, 0, -16, 580, 40, TYPE.body, THEME.ink, true, false, 28);
-    kit.label(card, view.discoveries[0].sourceLine || `${view.discoveries[0].sourceCount} 处真实来源`, 0, -58, 580, 28, TYPE.caption, THEME.coralDeep, true);
-  } else {
-    kit.label(card, '新的一世不需要先有收藏。', 0, -24, 580, 40, TYPE.body, THEME.muted, true);
+  const bottom = -640 + kit.layout.bottom;
+  kit.textAction(hud, back ? '‹ 返回' : '‹ 轮回', -264, top - 40, back ?? actions.goHome, 132);
+  kit.label(hud, title, 0, top - 38, 384, 52, 34, THEME.ink, true, true);
+  if (actions.journal) kit.textAction(hud, '角色', 260, top - 40, actions.journal, 144);
+  kit.label(hud, subtitle, 0, top - 94, 624, 36, 24, THEME.muted, true);
+  let bodyTop = top - 124;
+  if (growth) {
+    kit.label(hud, growth.summary, 0, top - 140, 624, 36, 26, THEME.ink, true, true);
+    kit.progress(hud, 0, top - 174, 624, 4, growth.progress, THEME.positive);
+    kit.label(hud, growth.goal, 0, top - 206, 624, 40, 23, THEME.muted, true);
+    bodyTop = top - 240;
   }
-
-  const actionY = -430;
-  if (view.runStatus === 'active') {
-    kit.button(hud, '继续这一世', 0, actionY, 560, 80, THEME.coral, actions.continueLife);
-    kit.label(hud, view.continueCaption ?? '', 0, actionY - 64, 560, 28, TYPE.caption, THEME.muted, true);
-  } else if (view.runStatus === 'awaiting-archive') {
-    kit.button(hud, '收入档案', 0, actionY, 560, 80, THEME.coral, actions.archiveLife);
-    kit.label(hud, view.continueCaption ?? '', 0, actionY - 64, 560, 28, TYPE.caption, THEME.muted, true);
-  } else {
-    kit.button(hud, '开启这一世', 0, actionY, 560, 80, THEME.coral, actions.startLife);
-    kit.label(hud, '自由模式已重做。历史入口暂且收起。', 0, actionY - 64, 600, 28, TYPE.caption, THEME.muted, true);
-    if (view.lastTitle) {
-      kit.button(hud, `上一世：${view.lastTitle}`, 0, actionY - 140, 560, 64, THEME.creamDeep, actions.lastResult, true, THEME.ink, 20);
-    }
+  if (visual) {
+    drawScene(kit, scene, 0, growth ? top - 318 : top - 216, { visual, width: 632, height: 156, ageBand: band, figure: getFigureVisual() });
+    bodyTop = growth ? top - 410 : top - 308;
   }
-}
-
-export function renderCarry(
-  kit: UiKit,
-  view: CarryPageView,
-  actions: PageActions & {
-    toggle: (id: string) => void;
-    begin: () => void;
-    skip: () => void;
-  },
-): void {
-  const { hud } = kit.beginPage('carry');
-  const top = 640 - kit.layout.top;
-  kit.label(hud, '要带着哪段理解上路？', 0, top - 24, 620, 44, TYPE.title - 2, THEME.ink, true, true);
-  kit.label(hud, `最多 ${view.max} 条。可以少带，也可以不带。`, 0, top - 64, 620, 28, TYPE.caption, THEME.muted, true);
-  view.cards.slice(0, 5).forEach((card, index) => {
-    const y = 280 - index * 118;
-    const node = kit.panel(hud, 0, y, 640, 108, card.selected ? colorFromRgb([255, 228, 214]) : THEME.panel, 20, card.selected ? THEME.coral : THEME.panelBorder);
-    kit.label(node, card.theme, 0, 32, 580, 24, TYPE.caption, THEME.coralDeep, true, true);
-    kit.label(node, card.statement.preview, 0, 2, 580, 40, TYPE.body, THEME.ink, true, false, 28);
-    kit.label(node, card.sourceLine, 0, -34, 580, 24, TYPE.caption, THEME.muted, true);
-    const button = node.addComponent(Button);
-    button.transition = Button.Transition.NONE;
-    node.on(Button.EventType.CLICK, () => actions.toggle(card.id));
-  });
-  kit.button(hud, view.selectedCount > 0 ? `带着 ${view.selectedCount} 条理解出发` : '先选，或选择不带', 0, -470, 560, 72, view.selectedCount > 0 ? THEME.coral : THEME.creamDeep, actions.begin, true, view.selectedCount > 0 ? THEME.white : THEME.ink);
-  kit.textAction(hud, '不带任何理解，重新开始', 0, -550, actions.skip);
-  kit.textAction(hud, '返回轮回空间', 0, -600, actions.goHome);
-}
-
-export function renderEncounter(
-  kit: UiKit,
-  view: EncounterPageView,
-  actions: PageActions & {
-    select: (id: string) => void;
-    confirm: () => void;
-    openPast: (id: string) => void;
-  },
-): void {
-  const { hud, scene } = kit.beginPage('encounter');
-  const top = 640 - kit.layout.top;
-  const sceneH = 250;
-  drawScene(kit, scene, 0, top - 28 - sceneH / 2, {
-    visual: view.scene,
-    width: 680,
-    height: sceneH,
-    ageBand: view.ageBand,
-    figure: getFigureVisual(),
-  });
-  kit.label(hud, `${view.age} 岁 · 人生点 ${view.lifePoints} / ${view.lifePointCap}`, 0, top - 6, 620, 24, TYPE.caption, THEME.muted, true);
-  kit.label(hud, view.title, 0, top - 36, 620, 28, TYPE.subtitle, THEME.ink, true, true);
-
-  const eventCard = kit.panel(hud, 0, 168, 640, 100, THEME.panel, 18, THEME.panelBorder);
-  renderExpandable(kit, eventCard, view.event, 0, 10, 600, 56, () => actions.expand('event', view.title, view.event.full));
-  if (view.triggerNote.expandable || view.triggerNote.preview) {
-    kit.label(hud, view.triggerNote.preview, 0, 108, 620, 24, TYPE.caption, THEME.coralDeep, true);
-  }
-  if (view.recalled.length > 0) {
-    view.recalled.slice(0, 2).forEach((item, index) => {
-      kit.textAction(hud, item.text, 0, 78 - index * 36, () => actions.openPast(item.id));
-    });
-  }
-
-  const count = view.options.length;
-  view.options.forEach((option, index) => {
-    const y = (count > 3 ? -10 : 8) - index * (count > 3 ? 82 : 92);
-    const fill = !option.enabled
-      ? THEME.creamDeep
-      : option.selected
-        ? colorFromRgb([255, 228, 214])
-        : THEME.panel;
-    const border = option.selected ? THEME.coral : THEME.panelBorder;
-    const card = kit.panel(hud, 0, y, 640, count > 3 ? 76 : 86, fill, 16, border);
-    kit.label(card, option.text, 0, 16, 600, 28, TYPE.body, THEME.ink, true, true);
-    const hint = option.enabled
-      ? [option.costLabel, option.preview].filter(Boolean).join(' · ')
-      : (option.disabledReason ?? option.preview);
-    kit.label(card, hint, 0, -16, 600, 28, TYPE.caption, option.enabled ? THEME.muted : THEME.coralDeep, true);
-    if (option.enabled) {
-      const button = card.addComponent(Button);
+  const bodyBottom = bottom + 204;
+  const viewport = bodyTop - bodyBottom;
+  const measured = measureBlocks(blocks, 632, kit.layout.minTouch);
+  const contentHeight = Math.max(viewport, measured.height);
+  const content = kit.scrollArea(hud, 0, (bodyTop + bodyBottom) / 2, 648, viewport, contentHeight);
+  for (const item of measured.items) {
+    const block = item.block;
+    const y = contentHeight / 2 - item.top - item.height / 2;
+    const node = block.kind === 'plain'
+      ? kit.createNode(content, 'Paragraph', 0, y, 632, item.height)
+      : kit.panel(content, 0, y, 632, item.height, block.selected ? THEME.creamDeep : THEME.panel, 16, block.selected ? THEME.coralDeep : THEME.panelBorder);
+    let cursor = item.height / 2 - 18;
+    const write = (text: string | undefined, height: number, size: number, line: number, heading = false): void => {
+      if (!text || !height) return;
+      const label = kit.label(node, text, 0, cursor - height / 2, 592, height, size,
+        block.disabled ? THEME.muted : heading ? THEME.coralDeep : size === 24 ? THEME.muted : THEME.ink, false, heading, line);
+      label.verticalAlign = Label.VerticalAlign.TOP;
+      cursor -= height + 12;
+    };
+    write(block.title, item.titleHeight, 26, 36, true);
+    write(block.body, item.bodyHeight, 30, 44);
+    write(block.detail, item.detailHeight, 24, 34);
+    if (block.action && !block.disabled) {
+      const button = node.addComponent(Button);
       button.transition = Button.Transition.NONE;
-      card.on(Button.EventType.CLICK, () => actions.select(option.id));
+      node.on(Button.EventType.CLICK, block.action);
     }
-    if (option.supportReason) {
-      kit.textAction(card, '为何要花点', 250, -28, () => actions.expand(`cost:${option.id}`, option.text, option.supportReason ?? ''));
-    }
-  });
+  }
+  kit.button(hud, footer.text, 0, bottom + 64, 632, 96, THEME.coralDeep, footer.action, footer.enabled !== false, THEME.white, 28);
+  if (footer.hint) kit.label(hud, footer.hint, 0, bottom + 133, 632, 32, 22, THEME.muted, true);
+}
+const plain = (body: string, title?: string): JournalBlock => ({ title, body, kind: 'plain' });
+const link = (title: string, action: () => void, detail?: string): JournalBlock => ({ title: `${title}  ›`, detail, action, kind: 'link' });
 
-  kit.button(hud, '确认此路', 0, -470, 280, 72, view.canConfirm ? THEME.coral : THEME.disabled, actions.confirm, view.canConfirm);
-  kit.textAction(hud, '返回轮回空间（选择已保存）', 0, -560, actions.goHome);
+export function renderHome(kit: UiKit, view: HomeView, actions: PageActions & { continueLife: () => void; startLife: () => void; lastResult: () => void; family?: { label: string; action: () => void } }): void {
+  const blocks: JournalBlock[] = [plain('你不知道后来会去哪里。\n但会做的事，可以跟着你走。', '从一段生活开始')];
+  if (view.continueCaption) blocks.push(plain(view.continueCaption));
+  if (view.lastTitle) blocks.push(link('上一世的生活', actions.lastResult, view.lastTitle));
+  if (actions.family) blocks.push(link(actions.family.label, actions.family.action, '持续经营一个家庭，把积累留给下一代'));
+  page(kit, 'home', '轮 回', '', blocks, actions,
+    { text: view.runStatus === 'active' ? '继续这一世' : view.runStatus === 'awaiting-archive' ? '看看这一生' : '开始这一世',
+      action: view.runStatus === 'active' ? actions.continueLife : view.runStatus === 'awaiting-archive' ? actions.lastResult : actions.startLife });
+}
+export function renderCarry(kit: UiKit, view: CarryPageView, actions: PageActions & { toggle: (id: string) => void; begin: () => void; skip: () => void; openPast: (id: string) => void }): void {
+  const blocks: JournalBlock[] = [plain(`最多带上 ${view.max} 条理解，也可以空着手上路。这里的理解来自前一世，不代表新遇见的人会作出相同回应。`),
+    { detail: '带走的是往事与来路。本世能力和专长从实际经历中获得，前世不会替你决定职业或增加数值。', kind: 'plain' }];
+  for (const card of view.cards) {
+    blocks.push({ title: `${card.selected ? '已选 · ' : ''}${card.theme}`, body: card.statement.full, detail: card.sourceLine,
+      selected: card.selected, action: () => actions.toggle(card.id) });
+    blocks.push(link('看看它从哪里来', () => actions.openPast(card.id)));
+  }
+  page(kit, 'carry', '带上什么', `已选 ${view.selectedCount} / ${view.max}`, blocks, actions,
+    { text: view.selectedCount ? `带着 ${view.selectedCount} 条理解出发` : '不带理解，重新开始', action: actions.begin });
 }
 
-export function renderRecall(
-  kit: UiKit,
-  view: RecallPageView,
-  actions: PageActions & {
-    select: (stance: RecallPageView['selectedStance']) => void;
-    confirm: () => void;
-    openPast: (index: number) => void;
-  },
-): void {
-  const { hud, scene } = kit.beginPage('recall');
+interface FocusOption { text: string; detail: string; disabled?: boolean; action: () => void }
+function focusPage(kit: UiKit, key: string, meta: string, title: string, body: string, options: FocusOption[],
+  actions: PageActions, feedback: EncounterPageView['feedback'], openPast: (id: string) => void): void {
+  const { hud } = kit.beginPage(key);
   const top = 640 - kit.layout.top;
-  drawScene(kit, scene, 0, top - 180, {
-    visual: view.scene,
-    width: 680,
-    height: 240,
-    ageBand: view.ageBand,
-    figure: getFigureVisual(),
+  const bottom = -640 + kit.layout.bottom;
+  kit.textAction(hud, '‹', -296, top - 36, actions.goHome, 80);
+  kit.label(hud, meta, -20, top - 36, 440, 48, 24, THEME.muted, false);
+  if (actions.journal) kit.textAction(hud, '角色', 290, top - 36, actions.journal, 100);
+  const feedbackBody = feedback ? textHeight(feedback.text, 584, 26, 36) : 0;
+  const delta = feedback?.changes.slice(0, 3).join(' · ') ?? '';
+  const feedbackDetail = delta ? textHeight(delta, 584, 24, 34) : 0;
+  const feedbackHeight = feedback ? 28 + feedbackBody + (delta ? 10 + feedbackDetail : 0) : 0;
+  const titleHeight = textHeight(title, 624, 38, 50);
+  const storyHeight = textHeight(body, 624, 30, 42);
+  const measured = options.map(o => {
+    const nameHeight = textHeight(o.text, 584, 30, 40);
+    const detailHeight = textHeight(o.detail, 584, 24, 34);
+    return { ...o, nameHeight, detailHeight, height: Math.max(kit.layout.minTouch, 28 + nameHeight + (detailHeight ? 8 + detailHeight : 0)) };
   });
-  kit.label(hud, `回望 · 人生点 ${view.lifePoints}`, 0, top - 8, 600, 28, TYPE.caption, THEME.muted, true);
-  const prompt = kit.panel(hud, 0, 150, 640, 120, THEME.panel, 20, THEME.panelBorder);
-  renderExpandable(kit, prompt, view.prompt, 0, 8, 600, 80, () => actions.expand('recall', '回望', view.prompt.full));
-  view.evidence.slice(0, 2).forEach((item, index) => {
-    kit.textAction(hud, item.preview, 0, 70 - index * 32, () => actions.openPast(index));
-  });
-  view.options.forEach((option, index) => {
-    const y = -40 - index * 110;
-    const card = kit.panel(hud, 0, y, 640, 100, option.selected ? colorFromRgb([255, 228, 214]) : THEME.panel, 18, option.selected ? THEME.coral : THEME.panelBorder);
-    kit.label(card, option.label, 0, 28, 580, 28, TYPE.subtitle, THEME.coralDeep, true, true);
-    kit.label(card, option.statement.preview, 0, -8, 580, 48, TYPE.body, THEME.ink, true, false, 28);
-    const button = card.addComponent(Button);
-    button.transition = Button.Transition.NONE;
-    card.on(Button.EventType.CLICK, () => actions.select(option.stance));
-  });
-  kit.label(hud, '三种选择得到同样的人生点。', 0, -380, 600, 24, TYPE.caption, THEME.muted, true);
-  kit.button(hud, '确认回望', 0, -450, 280, 72, view.canConfirm ? THEME.coral : THEME.disabled, actions.confirm, view.canConfirm);
-  kit.textAction(hud, '返回轮回空间（回望已保存）', 0, -530, actions.goHome);
+  const total = (feedback ? feedbackHeight + 28 : 0) + titleHeight + 18 + storyHeight + 32 + measured.reduce((n, o) => n + o.height + 14, 0);
+  const viewport = top - 88 - (bottom + 14);
+  const height = Math.max(total, viewport);
+  const parent = kit.scrollArea(hud, 0, (top - 88 + bottom + 14) / 2, 648, viewport, height);
+  let cursor = height / 2;
+  if (feedback) {
+    const node = kit.panel(parent, 0, cursor - feedbackHeight / 2, 624, feedbackHeight, THEME.creamDeep, 12, THEME.creamDeep);
+    kit.label(node, feedback.text, 0, feedbackHeight / 2 - 14 - feedbackBody / 2, 584, feedbackBody, 26, THEME.muted, false, false, 36);
+    if (delta) kit.label(node, delta, 0, -feedbackHeight / 2 + 14 + feedbackDetail / 2, 584, feedbackDetail, 24, THEME.coralDeep, false, true, 34);
+    const button = node.addComponent(Button); button.transition = Button.Transition.NONE;
+    node.on(Button.EventType.CLICK, () => openPast(feedback.sourceId));
+    cursor -= feedbackHeight + 28;
+  }
+  kit.label(parent, title, 0, cursor - titleHeight / 2, 624, titleHeight, 38, THEME.ink, false, true, 50);
+  cursor -= titleHeight + 18;
+  kit.label(parent, body, 0, cursor - storyHeight / 2, 624, storyHeight, 30, THEME.ink, false, false, 42);
+  cursor -= storyHeight + 32;
+  for (const o of measured) {
+    const node = kit.panel(parent, 0, cursor - o.height / 2, 624, o.height, THEME.panel, 14, THEME.panelBorder);
+    kit.label(node, o.text, 0, o.height / 2 - 14 - o.nameHeight / 2, 584, o.nameHeight, 30, o.disabled ? THEME.faint : THEME.coralDeep, false, true, 40);
+    if (o.detailHeight) kit.label(node, o.detail, 0, -o.height / 2 + 14 + o.detailHeight / 2, 584, o.detailHeight, 24, THEME.muted, false, false, 34);
+    if (!o.disabled) { const button = node.addComponent(Button); button.transition = Button.Transition.NONE; node.on(Button.EventType.CLICK, o.action); }
+    cursor -= o.height + 14;
+  }
 }
 
-export function renderCausality(
-  kit: UiKit,
-  view: CausalityPageView,
-  actions: PageActions & { back: () => void; openSource: (id: string) => void },
-): void {
-  const { hud } = kit.beginPage('causality');
-  const top = 640 - kit.layout.top;
-  kit.label(hud, view.title, 0, top - 20, 620, 40, TYPE.title - 4, THEME.ink, true, true);
-  const card = kit.panel(hud, 0, 80, 640, 520, THEME.panel, 24, THEME.panelBorder);
-  kit.label(card, '发生了什么', 0, 220, 580, 24, TYPE.caption, THEME.coralDeep, true, true);
-  kit.label(card, view.happened.preview, 0, 170, 580, 70, TYPE.body, THEME.ink, true, false, 28);
-  if (view.happened.expandable) {
-    kit.textAction(card, '展开全文', 0, 120, () => actions.expand('happened', view.title, view.happened.full));
-  }
-  if (view.response) {
-    kit.label(card, `我怎样回应：${view.response.preview}`, 0, 70, 580, 50, TYPE.caption, THEME.ink, true, false, 24);
-  }
-  if (view.understood) {
-    kit.label(card, `当时的理解：${view.understood.preview}`, 0, 20, 580, 40, TYPE.caption, THEME.muted, true, false, 24);
-  }
-  kit.label(card, `这件事为什么发生：${view.triggerNote || '生活自己走到这里'}`, 0, -30, 580, 50, TYPE.caption, THEME.coralDeep, true, false, 24);
-  kit.label(card, view.people.length > 0 ? `相关的人：${view.people.join('、')}` : '这件事里没有把别人卷得很深。', 0, -80, 580, 28, TYPE.caption, THEME.muted, true);
-  if (view.later[0]) {
-    kit.label(card, `后来：${view.later[0]}`, 0, -120, 580, 40, TYPE.caption, THEME.positive, true, false, 24);
-  }
-  view.evoked.slice(0, 2).forEach((item, index) => {
-    kit.textAction(card, `为何想起：${item.note}`, 0, -170 - index * 36, () => actions.openSource(item.id));
-  });
-  kit.button(hud, '返回刚才的地方', 0, -430, 560, 80, THEME.coral, actions.back);
-  kit.textAction(hud, '回轮回空间', 0, -520, actions.goHome);
+export function renderEncounter(kit: UiKit, view: EncounterPageView, actions: PageActions & { select: (id: string) => void; openPast: (id: string) => void }): void {
+  focusPage(kit, `encounter:${view.instanceId}`, `${view.age} 岁${view.growth ? ` · ${view.growth.place}` : ''}`, view.title, view.event.full,
+    view.options.map(o => ({
+      text: o.text.replace('照自己的方法：', ''),
+      detail: o.disabledReason ?? o.preview.replace('旧本领全部保留。', '').replace('稳定完成，', '').replace('无额外开支', '免费'),
+      disabled: !o.enabled, action: () => actions.select(o.id),
+    })), actions, view.feedback, actions.openPast);
 }
-
-export function renderEnding(
-  kit: UiKit,
-  view: EndingPageView,
-  actions: PageActions & { archive: () => void; nextLife: () => void },
-): void {
-  const { hud, scene } = kit.beginPage('ending');
-  const top = 640 - kit.layout.top;
-  drawScene(kit, scene, 0, top - 170, {
-    visual: view.scene,
-    width: 680,
-    height: 220,
-    ageBand: view.ageBand,
-    figure: getFigureVisual(),
-  });
-  kit.label(hud, `${view.age} 岁`, 0, top - 8, 200, 24, TYPE.caption, THEME.muted, true);
-  kit.label(hud, view.title, 0, top - 42, 620, 40, TYPE.title - 2, THEME.ink, true, true);
-  const card = kit.panel(hud, 0, 40, 640, 430, THEME.panel, 24, THEME.panelBorder);
-  kit.label(card, view.text.preview, 0, 170, 580, 60, TYPE.body, THEME.ink, true, false, 30);
-  kit.label(card, view.worldLine, 0, 120, 580, 28, TYPE.caption, THEME.coralDeep, true);
-  kit.label(card, '哪些经历塑造了你', 0, 84, 580, 24, TYPE.caption, THEME.muted, true, true);
-  view.shapedBy.slice(0, 3).forEach((item, index) => {
-    kit.label(card, item.preview, 0, 52 - index * 28, 580, 26, TYPE.caption, THEME.ink, true);
-  });
-  kit.label(card, view.changed[0] ? `你改变了什么：${view.changed[0]}` : '', 0, -50, 580, 40, TYPE.caption, THEME.positive, true, false, 24);
-  kit.label(card, view.unresolved[0] ? `仍未解决：${view.unresolved[0]}` : '', 0, -96, 580, 40, TYPE.caption, THEME.muted, true, false, 24);
-  if (view.unfulfilled[0]) {
-    kit.label(card, view.unfulfilled[0], 0, -140, 580, 40, TYPE.caption, THEME.coralDeep, true, false, 22);
-  }
-  if (view.pendingArchive) {
-    kit.button(hud, '收入档案，准备下一世', 0, -340, 560, 80, THEME.coral, actions.archive);
-  } else {
-    kit.button(hud, '开启下一世', 0, -340, 560, 80, THEME.coral, actions.nextLife);
-  }
-  kit.button(hud, '返回轮回空间', 0, -440, 560, 70, THEME.creamDeep, actions.goHome, true, THEME.ink);
-}
-
-export function renderError(kit: UiKit, message: string, goHome: () => void): void {
-  const { hud } = kit.beginPage('error');
-  kit.label(hud, '这一世暂时停住了', 0, 220, 590, 80, TYPE.title, THEME.ink, true, true);
-  kit.panel(hud, 0, 10, 590, 250, THEME.panel, 24, THEME.panelBorder);
-  kit.label(hud, message, 0, 10, 510, 180, TYPE.body, THEME.coralDeep, true, false, 34);
-  kit.button(hud, '返回轮回空间', 0, -220, 520, 86, THEME.coral, goHome);
-}
-
-export function renderOverlay(kit: UiKit, title: string, body: string, onClose: () => void): void {
-  if (!kit.hudLayer) {
+export function renderResult(kit: UiKit, view: ResultPageView, actions: PageActions & { next: () => void; openPast: (id: string) => void }): void {
+  if (view.growth) {
+    page(kit, `result:${view.instanceId}`, '积下的回响', `${view.age} 岁 · ${view.growth.place}`, [
+      plain(view.outcome, view.title), { title: '这一次，留下了', body: view.changes?.join('\n') || view.consequence, detail: view.pointLine },
+      plain(view.consequence), link('回看行动与成长的来源', () => actions.openPast(view.fragmentId)),
+    ], actions, { text: view.continueLabel, action: actions.next }, view.scene, view.ageBand, undefined, view.growth);
     return;
   }
-  kit.overlay(kit.hudLayer, title, body, onClose);
+  page(kit, `result:${view.instanceId}`, '事情的后来', `${view.age} 岁 · ${view.title}`,
+    [plain(view.response, '你作出的回应'), plain(view.outcome, '接着发生了什么'), { title: '这件事留下了', body: view.consequence, detail: view.pointLine },
+      link('这段经历已收入手记', () => actions.openPast(view.fragmentId))], actions,
+    { text: view.continueLabel, action: actions.next }, view.scene, view.ageBand);
 }
-
-export function renderMarkStripPublic(
-  kit: UiKit,
-  parent: Node,
-  marks: MarkStripView,
-  x: number,
-  y: number,
-  actions: PageActions,
-): void {
-  if (marks.visible.length === 0) {
-    kit.label(parent, '尚无留下的光环或行囊', x, y, 560, 28, TYPE.caption, THEME.muted, true);
-    return;
-  }
-  const items = marks.visible;
-  const width = 170;
-  const origin = x - ((items.length - 1) * (width + 12)) / 2;
-  items.forEach((mark, index) => {
-    renderMarkChip(kit, parent, mark, origin + index * (width + 12), y);
-  });
-  if (marks.overflow.length > 0) {
-    kit.textAction(parent, `还有 ${marks.overflow.length} 项`, x + 250, y, () => {
-      const body = [...marks.visible, ...marks.overflow].map((item) => `${item.name}　${item.hint}`).join('\n\n');
-      actions.expand('marks', '光环、行囊与负累', body);
-    });
-  }
+export function renderRecall(kit: UiKit, view: RecallPageView, actions: PageActions & { select: (stance: 'hold' | 'revise' | 'question') => void; openPast: (id: string) => void }): void {
+  focusPage(kit, `recall:${view.instanceId}`, `${view.age} 岁 · 回望`, view.growthMode ? '留下一种自己的方法' : '你现在怎样理解',
+    view.growthMode ? '这些事都是你做过的。选一种方法，带进接下来的生活。' : view.prompt.full,
+    view.options.map(o => ({ text: o.label, detail: view.growthMode ? o.effectHint : o.statement.full, action: () => actions.select(o.stance) })),
+    actions, view.feedback, actions.openPast);
 }
-
-function renderMarkChip(kit: UiKit, parent: Node, mark: MarkChipView, x: number, y: number): void {
-  const fill = mark.nature === 'burden' ? THEME.coralDeep : mark.nature === 'possession' ? THEME.skyDeep : THEME.grass;
-  const node = kit.panel(parent, x, y, 170, 40, THEME.white, 14, fill);
-  drawMarkBadge(kit, node, -62, 0, mark.nature, fill);
-  kit.label(node, mark.name, 12, 0, 110, 28, TYPE.caption, THEME.ink, false, true);
+export function renderCausality(kit: UiKit, view: CausalityPageView, actions: PageActions & { back: () => void; openSource: (id: string) => void }): void {
+  const blocks: JournalBlock[] = [plain(view.happened.full, '那时发生的事')];
+  if (view.response) blocks.push(plain(view.response.full, '当时怎样回应'));
+  if (view.understood) blocks.push(plain(view.understood.full, '当时的理解'));
+  if (view.triggerNote) blocks.push(plain(view.triggerNote, '这件事的来处'));
+  if (view.later.length) blocks.push(plain(view.later.join('\n\n'), '此后留下的变化'));
+  for (const source of view.sources) blocks.push(link(source.relation, () => actions.openSource(source.id)));
+  page(kit, `causality:${view.happened.full.slice(0, 24)}`, '一页往事', view.title, blocks, actions, { text: '返回上一页', action: actions.back }, undefined, 'adult', actions.back);
 }
-
-function renderExpandable(
-  kit: UiKit,
-  parent: Node,
-  story: TruncatedText,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  onExpand: () => void,
-): void {
-  kit.label(parent, story.preview, x, y + (story.expandable ? 8 : 0), width, height, TYPE.body, THEME.ink, true, false, 30);
-  if (story.expandable) {
-    kit.textAction(parent, '展开全文', x, y - height / 2 + 14, onExpand);
+export function renderEnding(kit: UiKit, view: EndingPageView, actions: PageActions & { nextLife: () => void; openPast: (id: string) => void }): void {
+  const blocks: JournalBlock[] = [];
+  if (view.feedback) blocks.push({ body: view.feedback.text, detail: view.feedback.changes.slice(0, 3).join(' · '), action: () => actions.openPast(view.feedback!.sourceId) });
+  blocks.push(plain(view.text.full, view.title), plain(view.unresolved.join('\n'), view.growthMode ? '做成的事，留下的生活' : '留下的理解'));
+  page(kit, 'ending', '这一生', '经历已收入手记', blocks, actions, { text: '再活一世', action: actions.nextLife });
+}
+export function renderJournal(kit: UiKit, view: JournalPageView, actions: PageActions & { back: () => void; openPast: (id: string) => void }): void {
+  const blocks: JournalBlock[] = [];
+  if (view.characterSummary) blocks.push(plain(view.characterSummary, '现在的你'));
+  if (!view.groups.length) blocks.push(plain('还没有记下的经历。开启一世，手记会随着你的回应慢慢写满。'));
+  for (const group of view.groups) {
+    blocks.push(plain(group.title));
+    for (const entry of group.entries) blocks.push(link(entry.label, () => actions.openPast(entry.id), entry.text));
   }
+  page(kit, 'journal', '人生手记', '事实、回应与理解，都能翻回去看', blocks, actions,
+    { text: '返回刚才的一页', action: actions.back }, undefined, 'adult', actions.back);
+}
+export function renderError(kit: UiKit, message: string, back: () => void): void {
+  page(kit, 'error', '暂时停一停', '', [plain(message)], { goHome: back, expand: () => {} }, { text: '返回轮回', action: back }, SCENE_VISUALS.hearth);
+}
+export function renderOverlay(kit: UiKit, title: string, body: string, close: () => void): void {
+  if (kit.screen) kit.overlay(kit.screen, title, body, close);
 }
